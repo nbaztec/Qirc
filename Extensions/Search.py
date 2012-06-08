@@ -34,7 +34,7 @@ def wolfram(query):
         @summary: Performs calculation on Wolfram Alpha and returns the results
     '''    
     try:        
-        response = urllib2.urlopen('http://api.wolframalpha.com/v2/query?appid=RU4KX6-XJY2PPE93Y&input=%s&format=plaintext' % urllib.quote(query))        
+        response = urllib2.urlopen('http://api.wolframalpha.com/v2/query?appid=XXXX&input=%s&format=plaintext' % urllib.quote(query))        
         page = response.read()                            
         response.close()
         soup = BeautifulSoup(page)            
@@ -59,7 +59,7 @@ def google(query):
         @summary: Performs a Google search and returns the first result
     '''  
     try:        
-        response = urllib2.urlopen('https://www.googleapis.com/customsearch/v1?key=AIzaSyAMajmwMaD4uPv1EuXn_WzC-9T61GZW5gw&cx=013036536707430787589:_pqjad5hr1a&q=%s&alt=atom&num=1' % urllib.quote(query))        
+        response = urllib2.urlopen('https://www.googleapis.com/customsearch/v1?key=XXXX&cx=013036536707430787589:_pqjad5hr1a&q=%s&alt=atom&num=1' % urllib.quote(query))        
         page = response.read()                            
         response.close()
         soup = BeautifulSoup(page)            
@@ -77,7 +77,7 @@ def tdf(query):
         @summary: Performs a Google search on thinkdigit forum and returns the first result
     '''  
     try:        
-        response = urllib2.urlopen('https://www.googleapis.com/customsearch/v1?key=AIzaSyAMajmwMaD4uPv1EuXn_WzC-9T61GZW5gw&cx=013036536707430787589:_pqjad5hr1a&q=%s&alt=atom&num=1&siteSearch=thinkdigit.com/forum/' % urllib.quote(query))        
+        response = urllib2.urlopen('https://www.googleapis.com/customsearch/v1?key=XXXX&cx=013036536707430787589:_pqjad5hr1a&q=%s&alt=atom&num=1&siteSearch=thinkdigit.com/forum/' % urllib.quote(query))        
         page = response.read()                            
         response.close()
         soup = BeautifulSoup(page)            
