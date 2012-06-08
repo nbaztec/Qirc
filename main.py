@@ -20,8 +20,7 @@ if __name__ == '__main__':
               'port'        : 6667,
               'nick'        : 'QircBot',
               'ident'       : 'QircBot',
-              'realname'    : 'QirckyBot',
-              'password'    : 'MacDonald'
+              'realname'    : 'QirckyBot'
               })
     if qb.connect():
         qb.register()
