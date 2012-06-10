@@ -20,41 +20,43 @@ class PseudoIntelligence(object):
             @summary: Build the rules for AI
         '''
         self._redict[(r'who (are|r) (you|u)', re.I)] = [
-                                                            "Ask your mom, $u", 
+                                                            #"Ask your mom, $u", 
                                                             "I AM YOUR FAAATHAAA!!", 
                                                             "I'd rather not say, $u", 
                                                             "If I tell you I'd have to kill you, $u",
-                                                            "Who the fuck are YOU to ask me who I am?",
+                                                            #"Who the fuck are YOU to ask me who I am?",
                                                             "I am Batman, you jelly?",
-                                                            "The one who ass raped you in your sleep last night.",
+                                                            #"The one who ass raped you in your sleep last night.",
                                                             "I am Qircky.",
-                                                            "Your worst nightmare, bitch."
+                                                            "Your worst nightmare."
                                                         ]
         self._redict[(r'\b(hi|hello|sup|holla|hey)\b', re.I)] = [
-                                                                    "I'm good, your butt feeling better?, $u",
+                                                                    "I'm good, you feeling better?, $u",
                                                                     "Hi, $u",
                                                                     "WASSSSUP! $u",
-                                                                    "Hey fuckface.",
+                                                                    "Hey $u.",
                                                                     "Morning...wait...Evening...eh..Fuck this shit, I'm out",
                                                                     "Peace nigga",
                                                                     "Glory to Earth"
                                                                 ]
         self._redict[(r'\bhow (are|r) (you|u)\b', re.I)] = [
-                                                                    "I'm good, your butt feeling any better?, $u",
-                                                                    "Fine, assface",
+                                                                    #"I'm good, your butt feeling any better?, $u",
+                                                                    "Fine, I guess",
                                                                     "I'm good, $u",
-                                                                    "Just fuck off. _|_"
+                                                                    "Get lost punk. _|_"
                                                                 ]
         self._redict[(r'\bhow do (you|u) do\b', re.I)] = [
-                                                                    "Do what asshole?",
-                                                                    "First I get naked, put on a condom then I fuck your ass.",
-                                                                    "Doggy Style."
+                                                                    #"Do what asshole?",
+                                                                    #"First I get naked, put on a condom then I fuck your ass.",
+                                                                    "Doggy Style.",
+                                                                    "Missionary.",
+                                                                    "Wheelbarrow."
                                                                 ]
-        self._redict[(r'\barm|activate (.*)', re.I)] = [
+        self._redict[(r'\b(?:arm|activate) (.*)', re.I)] = [
                                                     "Powering up $1 for $u", 
                                                     "No you activate that shit yourself, $u",
                                                     "$1: All Systems Online.",
-                                                    "Fuck off Nazi.",
+                                                    "Piss off Nazi.",
                                                     "Arming $1 for Mein Fuhrer.",
                                                     "Activating $1 for $u."
                                                 ]
@@ -73,11 +75,6 @@ class PseudoIntelligence(object):
                                                     "Money doesn't grow on trees faggot",
                                                     "One doesn't simply GET money, noob."
                                                 ]
-        self._redict[(r'.*', re.I)] = [
-                                           "Fuck off, $u",
-                                           "Get lost, $u",
-                                           "OMG! LOL! LMAO! YOLO! You're so 1337, asshole -_-",
-                                       ]
         
     def reply(self, stimuli, user):
         '''
@@ -101,8 +98,7 @@ class PseudoIntelligence(object):
             @return: str, Reply
         '''        
         s = iter(v[random.randrange(0, len(v))])        # Get a random response
-        print s
-        
+       
         # Replace placeholders in template
         reply = ""
         for c in s:
@@ -117,6 +113,6 @@ class PseudoIntelligence(object):
                     reply += c                                  
             else:
                 reply += c                
-        return reply
+        return None if reply == "" else reply
     
         

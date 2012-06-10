@@ -11,6 +11,10 @@ import re
 from PseudoIntelligence import PseudoIntelligence
 from threading import Thread, Lock
 from Extensions import Search
+from Extensions.CleverBot import CleverBot
+from Extensions.VoteManager import VoteManager
+from Extensions.Werewolf import Werewolf
+from Extensions import Play
 
 class QircBot(object):
     '''
@@ -51,6 +55,10 @@ class QircBot(object):
         self._intelli = PseudoIntelligence()    # AI module, Work in development          
         self.orig_nick = self.params['nick']    # Store original nick for temp logins
         self._arma_whitelist = ['nbaztec', 'QircBot']
+        self._cb = CleverBot()
+        self._vote = VoteManager(callback=self.say)
+        self._werewolf = Werewolf(callback=self.say, pm=self.notice)
+        self._ghost = False
     
     def connect(self):
         '''
@@ -70,7 +78,6 @@ class QircBot(object):
         '''
             @summary: Registers the bot on IRC
         '''
-        self._ghost = False
         self.send("NICK %s" % self.params['nick'])
         self.send("USER %s %s bla :%s" % (self.params['ident'], self.params['host'], self.params['realname']))        
         pass
@@ -80,14 +87,17 @@ class QircBot(object):
             @var msg: Message to send
             @summary: Send raw message to IRC
         '''
-        print 'Sending', msg
-        self._sock.send(msg + "\r\n")        
+        try:
+            print 'Sending', msg
+            self._sock.send(msg + "\r\n")
+        except:
+            pass        
             
     def begin_read(self):
         '''
             @summary: Launches an async thread for reading
         '''
-        self._read_thread = Thread(target=self.read)
+        self._read_thread = Thread(target=self.read, name='read_thread')
         self._read_thread.start()
         
     def read(self):
@@ -132,6 +142,7 @@ class QircBot(object):
             @var nick: NICK to ghost
             @summary: Sends a message to NickServ to ghost a NICK
         '''
+        print "GHOSTING..."
         self.send("PRIVMSG nickserv :ghost %s %s" % (nick, self.params['password']))
     
     def nick(self, nick):
@@ -163,6 +174,14 @@ class QircBot(object):
         '''   
         self.send('PRIVMSG %s :%s' % (nick, msg))
     
+    def notice(self, nick, msg):
+        '''
+            @var nick: User nick or channel
+            @var msg: Message to say
+            @summary: Whisper something to a channel or user
+        '''   
+        self.send('NOTICE %s :%s' % (nick, msg))
+        
     def kick(self, nick, msg):        
         '''
             @var nick: User nick
@@ -220,7 +239,7 @@ class QircBot(object):
         elif self._armastep == 2:                       # Stage 3, Get +o mode {optional}
             self._armastep += 1            
             #self.send("PRIVMSG ChanServ :op %s %s" % (self.params['chan'], self.params['nick']))
-            Thread(target=self.armageddon).start()  
+            Thread(target=self.armageddon, name='armageddon-3').start()  
         else:                                           # Final Stage, kickban everyone except in whitelist
             self._armastep = 0                          # Reset armageddon to Stage 0
             for u,h in self.userhosts.iteritems():                            
@@ -244,20 +263,25 @@ class QircBot(object):
             # Important Messages
             if(line[0] == "PING"):                          # PING/PONG : Must reply to this
                 self.send("PONG %s" % line[1]) 
-            elif(line[1] == "QUIT" or line[1] == "PART"):   # QUIT/PART
-                m = QircBot.re_name.match(line[0])          # Get name of the parting user
+            #elif(line[1] == "QUIT" or line[1] == "PART"):   # QUIT/PART
+            #    m = QircBot.re_name.match(line[0])          # Get name of the parting user
+            #    user = m.group(1)
+            #    if user == self.params['nick']:
+            #        return False
+            #    else:
+            #        self.say('Bye bye ' + user)
+            elif(line[1] == "QUIT"):                        # QUIT
+                m = QircBot.re_name.match(line[0])          # Disconnect read loop
                 user = m.group(1)
                 if user == self.params['nick']:
-                    return False
-                else:
-                    self.say('Bye bye ' + user)
+                    return False                
             elif(line[1] == "JOIN"):                        # JOIN
                 m = QircBot.re_name.match(line[0])          # Get name of the joining user
                 user = m.group(1)
                 if user == self.params['nick']:
                     self.say('All systems go!')
-                else:
-                    self.say('Hey ' + user)
+                #else:
+                    #self.say('Hey ' + user)
             elif(line[1] == "KICK"):                        # KICK
                 self.join(self.params['chan'])
             elif(line[1] == "NOTICE"):                      # NOTICE
@@ -274,8 +298,10 @@ class QircBot(object):
                 self.params['nick'] += str(random.randrange(1,65535)) 
                 print 'Retrying with nick', self.params['nick']
                 self._ghost = self.params['password'] is not None   # Ghost other user/bot if password is specified
+                print "GHOST", self._ghost
                 self.register()                                     # Retry registering
             elif line[1] == "376":                          # End of /MOTD command
+                print "GHOSTING???", self._ghost 
                 if self._ghost:                             # If ghosting requested
                     self.ghost(self.orig_nick)                    
                     self._ghost = False
@@ -283,27 +309,27 @@ class QircBot(object):
                     self.identify()                         # Normal join, just identify
                 self.usernames = []                         # Init usernames
                 self._armastep = 0                          # Init armageddon stage to 0
-                Thread(target=self._callback, args=(self,)).start() # Call callback function
+                Thread(target=self._callback, args=(self,), name='callback').start() # Call callback function
             elif line[1] == "353":                          # NAMES
                 self.usernames = [x.strip(':@+') for x in line[5:]] # Get clean names
             elif line[1] == "366":                          # End of /NAMES list
                 print "Usernames", self.usernames                                
                 if self._armastep == 1:                    
-                    Thread(target=self.armageddon).start()                
+                    Thread(target=self.armageddon, name='armageddon-2').start()                
             elif line[1] == "302":                          # USERHOST
                 if self._armastep == 3:                    
                     self.userhosts = {}  
                     for uh in line[3:]:                     # Build userhosts
                         m = re.search(r'([^=]*)=\+(.*$)', uh)
                         self.userhosts[m.group(1).strip(':@+')] = m.group(2)                                 
-                    Thread(target=self.armageddon).start()
+                    Thread(target=self.armageddon, name='armageddon-4').start()
                     print "Userhosts", self.userhosts                
                         
             # Fun Messages
             elif line[1] == "PRIVMSG":                  
                 m = QircBot.re_name.match(line[0])          # If message is a channel message or private message for bot
                 if m:                                       # Call extended parser in separate thread
-                    Thread(target=self.extended_parse, args=(m.group(1), str.lstrip(' '.join(line[3:]),':'),)).start()                                            
+                    Thread(target=self.extended_parse, args=(m.group(1), str.lstrip(' '.join(line[3:]),':'),), name='extended_parse').start()                                            
         return True
     
     def parse_cmd(self, cmd):
@@ -312,11 +338,15 @@ class QircBot(object):
             @summary: Parses the command from standard input to take suitable actions
         '''        
         if cmd.startswith('quit'):
-            if len(cmd) > 5:
-                self.disconnect(cmd[5:])
-            else:
-                self.disconnect("I'll be back.")
-            return False
+            try:
+                if len(cmd) > 5:
+                    self.disconnect(cmd[5:])                
+                else:
+                    self.disconnect("I'll be back.")
+            except Exception, e:
+                print "Error", e
+            finally:                
+                return False
         elif cmd.startswith('say '):
             self.say(cmd[4:])
         elif cmd.startswith('join '):
@@ -324,7 +354,13 @@ class QircBot(object):
         elif cmd.startswith('me '):
             self.action(cmd[3:])
         elif cmd.startswith('msg '):
-            self.msg(cmd[4:])
+            m = re.search(r'^msg ([\S]+) (.*)', cmd)
+            if m:
+                self.msg(m.group(1), m.group(2))
+        elif cmd.startswith('notice '):
+            m = re.search(r'^notice ([\S]+) (.*)', cmd)
+            if m:
+                self.notice(m.group(1), m.group(2))
         elif cmd.startswith('kick '):
             self.kick(cmd[5:], cmd[5:])
         elif cmd.startswith('ban '):
@@ -354,21 +390,65 @@ class QircBot(object):
         # Commands
         r = None
         exec_cmd = True
-        if msg.startswith('!wiki'):            
-            r = Search.wiki(msg[6:])                    
-        elif msg.startswith('!wolf'):
-            r = Search.wolfram(msg[6:])                        
-        elif msg.startswith('!g'):
-            r = Search.google(msg[3:])                        
-        elif msg.startswith('!tdf'):
+        plain_say = False
+        
+        # Voting
+        if self._vote.is_voting:
+            if len(msg) == 1:
+                self._vote.got_vote(user, msg)
+                return True
+        if self._werewolf.is_joining:
+            if msg == "+":
+                self._werewolf.join(user)
+                return True
+        elif self._werewolf.is_game:
+            m = re.search(r'\+ ?([\S]*)', msg)
+            if m:
+                self._werewolf.lynch(user, m.group(1))
+                return True
+                    
+        if re.match(r'^!help\b', msg):            
+            r = 'commands are: !wiki, !wolf, !g, !tdf, !urban, !weather, !forecast, !vote, !roll, !game'
+        elif re.match(r'^!wiki\b', msg):            
+            r = Search.wiki(msg[6:])
+        elif re.match(r'^!wolf\b', msg):
+            r = Search.wolfram(msg[6:])
+        elif re.match(r'^!g\b', msg):
+            r = Search.google(msg[3:])
+        elif re.match(r'^!tdf\b', msg):
             r = Search.tdf(msg[5:])
+        elif re.match(r'^!urban\b', msg):
+            r = Search.urbandefine(msg[7:])
+        elif re.match(r'^!weather\b', msg):
+            r = Search.weather(msg[9:])
+        elif re.match(r'^!forecast\b', msg):
+            r = Search.forecast(msg[10:])
+        elif re.match(r'^!vote\b', msg):
+            r = self._vote.start(msg[6:])
+            plain_say = True
+        elif re.match(r'^!roll\b', msg):
+            r = '%s rolled a %s.' % (user, Play.roll())
+            plain_say = True
+        elif re.match(r'^!game\s*$', msg):
+            r = "-werewolf"
+            plain_say = True
+        elif re.match(r'^!game -werewolf\b', msg):
+            r = self._werewolf.start()
+            plain_say = True
         else:
             exec_cmd = False
-            if re.search(r'\b' + self.params['nick'] + r'\b', msg):     # If bot's name is present            
-                self.say(self._intelli.reply(msg, user))                # Use AI for replying                
+            if re.search(r'\b' + self.params['nick'] + r'\b', msg):     # If bot's name is present
+                clean_msg = re.sub(r'\b' + self.params['nick'] + r'\b', '', msg)            
+                reply = self._intelli.reply(msg, user)                  # Use AI for replying
+                if not reply:                    
+                    reply = self._cb.ask(clean_msg)
+                self.say(reply)                                         # Use AI for replying                
             
         # Say if some output was returned
-        if r is not None:
+        if plain_say and r is not None:
+            self.say(r)
+        elif r is not None:
             self.say(user+', '+r)
-        elif exec_cmd:
-            self.say("No results for you %s." % user)
+        elif exec_cmd and not plain_say:
+            self.say("No results for you %s." % user)        
+            
