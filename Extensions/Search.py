@@ -37,7 +37,7 @@ def wolfram(query):
         @summary: Performs calculation on Wolfram Alpha and returns the results
     '''    
     try:        
-        response = urllib2.urlopen('http://api.wolframalpha.com/v2/query?appid=XXXX&input=%s&format=plaintext' % urllib.quote(query))        
+        response = urllib2.urlopen('http://api.wolframalpha.com/v2/query?appid=RU4KX6-XJY2PPE93Y&input=%s&format=plaintext' % urllib.quote(query))        
         page = response.read()                            
         response.close()
         soup = BeautifulSoup(page)            
