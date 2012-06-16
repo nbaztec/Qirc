@@ -8,6 +8,8 @@ import urllib2
 import urllib
 import hashlib
 import cookielib
+from Util.Log import Log
+from Util import htmlx
 
 class CleverBot(object):
     '''
@@ -96,7 +98,7 @@ class CleverBot(object):
             resp = self.opener.open(req)
             return self.parse_response(resp.read())
         except Exception, e:
-            print "Error", e
+            Log.write(e, 'E')
             return None
         finally:
             resp.close()
@@ -109,7 +111,7 @@ class CleverBot(object):
                     self.data[k] = v
             except:
                 pass
-        return self.response['ttsText']
+        return htmlx.unescape(self.response['ttsText'])
         
     def query_hash(self, params):
         query = urllib.urlencode(params)[9:29]

@@ -7,7 +7,8 @@ from threading import Thread
 import time
 #import math
 import random
-
+from Util.Log import Log
+ 
 class Werewolf(object):
     '''
         @summary: Werewolf is a classic game where in a village is inhabited by a werewolves. The game is divided into day/night cycles. 
@@ -44,15 +45,14 @@ class Werewolf(object):
         '''
         if self.is_joining and user not in self.users:            
             self.users[user] = 0            # 0: Human, 1: Wolf
+            Thread(target=self.pm, args=(user, 'Welcome %s.' % user,), name='pm').start()
         
     def joining_period(self):
         '''
             @summary: Calls the timeout of joining period
         '''
         self.is_running = True
-        self.is_joining = True
-        self.join('hsr')
-        self.join('bugs')
+        self.is_joining = True        
         time.sleep(20)                      # 20 seconds timeout
         self.is_joining = False
         self.assign()                       # Assign roles to players
@@ -115,12 +115,13 @@ class Werewolf(object):
                 m = v        
         if p:
             v = self.users.pop(p)               # Remove from game
+            Log.write(self.users)
             if v:
                 self.wolves -= 1
                 Thread(target=self.callback, args=('%s was lynched! Justice is served. %s is dead.' % (p, p),), name='callback').start()
             else:
                 self.villagers -= 1
-                Thread(target=self.callback, args=('%s was lynched! Sinners all of you! The blood of %s is on your hands.' % (p, p),), name='callback').start()
+                Thread(target=self.callback, args=('%s was lynched! Sinners all of you! The blood of innocent %s is on your hands.' % (p, p),), name='callback').start()
         else:      
             Thread(target=self.callback, args=("Come forth people, else the beast shall devour you all!",), name='callback').start()
     
@@ -142,7 +143,7 @@ class Werewolf(object):
                            
         self.users.pop(victim)                          # Remove from game
         self.villagers -= 1                         
-        return victim, self.villagers == self.wolves    # Is the number of wolves equal to the number or villagers?
+        return victim, self.villagers == 0    # Is the number of wolves equal to the number or villagers?
          
     def game(self):        
         self.is_playing = True                          # Start playing
@@ -153,8 +154,11 @@ class Werewolf(object):
             victim, is_last = self.choose_victim()                
             time.sleep(10)
             if is_last:
-                self.villagers = 0                      # Kill the last men standing
-                Thread(target=self.callback, args=("Day Time! %s got eaten last night. The lone survivor is outmatched now, i.e. dinner." % victim,), name='callback').start()
+                Thread(target=self.callback, args=("Day Time! %s was eaten last night." % victim,), name='callback').start()
+            if self.villagers == self.wolves:
+                self.villagers = 0
+                Thread(target=self.callback, args=("Day Time! %s was eaten last night." % victim,), name='callback').start()
+                Thread(target=self.callback, args=("The lone survivor %s is outmatched by the werewolf. He flees." % victim,), name='callback').start()
             else:
                 self.time_of_day = 0                    # Day time!
                 self.lynch_vote = {}

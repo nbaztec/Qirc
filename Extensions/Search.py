@@ -9,6 +9,7 @@ import urllib2
 import re
 from Util.BeautifulSoup import BeautifulSoup
 from Util import htmlx
+from Util.Log import Log
 
 def to_celcius(f):
     return (float(f)-32)*5/9
@@ -25,10 +26,10 @@ def wiki(word):
         soup = BeautifulSoup(page)            
         item_1 = soup.find('item')
         desc = ''.join(item_1.find('description').find(text=True))
-        url = ''.join(item_1.find('url').find(text=True))
-        return "%s [%s]" % (desc.replace('\n', ' '), url)
+        url = ''.join(item_1.find('url').find(text=True))        
+        return ("%s [%s]" % (htmlx.unescape(desc.replace('\n', ' ')), url)).encode('utf-8')
     except Exception, e:
-        print e
+        Log.write(e, 'E')
         return None            
 
 def wolfram(query):
@@ -37,43 +38,40 @@ def wolfram(query):
         @summary: Performs calculation on Wolfram Alpha and returns the results
     '''    
     try:        
-        response = urllib2.urlopen('http://api.wolframalpha.com/v2/query?appid=RU4KX6-XJY2PPE93Y&input=%s&format=plaintext' % urllib.quote(query))        
+        response = urllib2.urlopen('http://api.wolframalpha.com/v2/query?appid=XXXX&input=%s&format=plaintext' % urllib.quote(query))        
         page = response.read()                            
         response.close()
         soup = BeautifulSoup(page)            
-        primary_item = soup.find('pod', attrs={'primary': 'true'})
-        #wolf_output = []
-        #for item in items:
-        #    try:
-        #        wolf_output.append(item.find(text=True).replace('\n', ' '))
-        #    except:
-        #        pass     
-        #if len(wolf_output):               
-        #    return ', '.join(wolf_output)
-        if primary_item:
-            return ''.join(primary_item.findAll(text=True))
+        out = []
+        primary_items = soup.findAll('pod', attrs={'primary': 'true'})        
+        for primary in primary_items:
+            out.append(htmlx.unescape(''.join(primary.find('plaintext').findAll(text=True))))
+        if len(out):
+            return (', '.join(out)).encode('utf-8')
         else:
             return None
     except Exception, e:
-        print 'Error', e
+        Log.write(e, 'E')
         return None
         
-def google(query):    
+def google(query, num=1):    
     '''
         @var query: Query for searching
+        @var num: Return the (n)th result
         @summary: Performs a Google search and returns the first result
+        @attention: Google's description requires unescaping twice
     '''  
     try:        
-        response = urllib2.urlopen('https://www.googleapis.com/customsearch/v1?key=XXXX&cx=013036536707430787589:_pqjad5hr1a&q=%s&alt=atom&num=1' % urllib.quote(query))        
+        response = urllib2.urlopen('https://www.googleapis.com/customsearch/v1?key=XXXX&cx=013036536707430787589:_pqjad5hr1a&q=%s&alt=atom&num=%d' % (urllib.quote(query), num))        
         page = response.read()                            
         response.close()
         soup = BeautifulSoup(page)            
-        item_1 = soup.findAll('entry')[0]
-        url =  ''.join(item_1.find('id').find(text=True))            
-        desc = htmlx.unescape(re.sub(r'&lt;[^&]+&gt;','',item_1.find('summary').find(text=True))) 
-        return "[%s], %s" % (url, desc)
+        item_1 = soup.findAll('entry')[num-1]
+        url =  ''.join(item_1.find('id').find(text=True))
+        desc = htmlx.unescape(htmlx.unescape(re.sub(r'&lt;[^&]+&gt;','',item_1.find('summary').find(text=True)))) 
+        return ("[%s], %s" % (url, desc)).encode('utf-8')
     except Exception, e:
-        print 'Error', e
+        Log.write(e, 'E')
         return None
     
 def tdf(query):    
@@ -89,14 +87,15 @@ def tdf(query):
         item_1 = soup.findAll('entry')[0]
         url =  ''.join(item_1.find('id').find(text=True))            
         desc = htmlx.unescape(re.sub(r'&lt;[^&]+&gt;','',item_1.find('summary').find(text=True)))     
-        return "[%s], %s" % (url, desc)
+        return ("[%s], %s" % (url, desc)).encode('utf-8')
     except Exception, e:
-        print 'Error', e
+        Log.write(e, 'E')
         return None
     
-def urbandefine(term):    
+def urbandefine(term, num=1):    
     '''
         @var term: Term for searching
+        @var num: Return the (n)th result
         @summary: Performs a urban dictionary search and returns the first result
     '''  
     try:       
@@ -104,12 +103,15 @@ def urbandefine(term):
         page = response.read()                            
         response.close()
         soup = BeautifulSoup(page)            
-        item_1 = soup.find('table', attrs={'id': 'entries'}).find('td', attrs={'class': 'text'})
-        define = htmlx.unescape(''.join(item_1.find('div', attrs={'class': 'definition'}).findAll(text=True)))
-        example = htmlx.unescape(''.join(item_1.find('div', attrs={'class': 'example'}).findAll(text=True)))            
-        return "%s: %s, Eg: %s" % (term, define, example)
+        items = soup.find('table', attrs={'id': 'entries'}).findAll('td', attrs={'class': 'text', 'id': re.compile('entry_\d+')})
+        item = items[num-1]
+        define = htmlx.unescape(''.join(item.find('div', attrs={'class': 'definition'}).findAll(text=True)))
+        example = htmlx.unescape(''.join(item.find('div', attrs={'class': 'example'}).findAll(text=True)))
+        if len(example):            
+            example = ", Eg: " + example
+        return ("%s: %s%s" % (term, define, example)).encode('utf-8')        
     except Exception, e:
-        print 'Error', e
+        Log.write(e, 'E')
         return None
 
 def weather(place): 
@@ -123,9 +125,9 @@ def weather(place):
         response.close()
         soup = BeautifulSoup(page)
         current = soup.find('current_conditions')
-        return '%s: %s at %sC, %s, %s' % (soup.find('forecast_information').find('city')['data'], current.find('condition')['data'], current.find('temp_c')['data'], current.find('humidity')['data'], current.find('wind_condition')['data'])          
+        return ('%s: %s at %sC, %s, %s' % (soup.find('forecast_information').find('city')['data'], current.find('condition')['data'], current.find('temp_c')['data'], current.find('humidity')['data'], current.find('wind_condition')['data'])).encode('utf-8')          
     except Exception, e:
-        print 'Error', e
+        Log.write(e, 'E')
         return None
     
 def forecast(place): 
@@ -142,9 +144,9 @@ def forecast(place):
         r = []
         for f in forecasts:
             r.append('%s on %s %dC-%dC' % (f.find('condition')['data'], f.find('day_of_week')['data'], to_celcius(f.find('low')['data']), to_celcius(f.find('high')['data'])))
-        return '%s: %s' % (soup.find('forecast_information').find('city')['data'], ' | '.join(r))          
+        return ('%s: %s' % (soup.find('forecast_information').find('city')['data'], ' | '.join(r))).encode('utf-8')          
     except Exception, e:
-        print 'Error', e
+        Log.write(e, 'E')
         return None
         
 def translate(msg):    
@@ -158,11 +160,11 @@ def translate(msg):
         req.add_header('User-Agent', 'Mozilla/5.0 (Windows NT 6.1; WOW64) AppleWebKit/536.5 (KHTML, like Gecko) Chrome/19.0.1084.52 Safari/536.5')
         response = urllib2.urlopen(req)        
         page = response.read()        
-        print page                    
+        Log.write(page)                    
         response.close()
         soup = BeautifulSoup(page)            
         trans = ''.join(soup.find('span', attrs={'id': 'result'}).findAll(text=True))            
-        return "%s -> %s" % (msg, trans)
+        return ("%s -> %s" % (msg, trans)).encode('utf-8')
     except Exception, e:
-        print 'Error', e
+        Log.write(e, 'E')
         return None        

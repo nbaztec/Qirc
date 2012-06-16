@@ -43,7 +43,7 @@ class PseudoIntelligence(object):
                                                                     #"I'm good, your butt feeling any better?, $u",
                                                                     "Fine, I guess",
                                                                     "I'm good, $u",
-                                                                    "Get lost punk. _|_"
+                                                                    "Get lost punk."
                                                                 ]
         self._redict[(r'\bhow do (you|u) do\b', re.I)] = [
                                                                     #"Do what asshole?",
