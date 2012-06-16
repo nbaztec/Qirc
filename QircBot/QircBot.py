@@ -324,7 +324,7 @@ class ActiveBot(BaseBot):
         if self._flags['o']:
             self.send('KICK %s %s %s' % (self.params['chan'], nick, ' :'+msg if msg else ''))
         elif auto_op:
-            self.queue_op_add(target=self.kick, args=(nick, msg, False))
+            self.queue_op_add(target=self.kick, args=(nick, msg, False,))
             self.op(self.params['chan'], self.params['nick'])
     
     def ban(self, host, reason, auto_op=True):
@@ -338,7 +338,7 @@ class ActiveBot(BaseBot):
         if self._flags['o']:
             self.send('MODE %s +b %s %s' % (self.params['chan'], host, reason))
         elif auto_op:
-            self.queue_op_add(target=self.ban, args=(host, reason, False))    
+            self.queue_op_add(target=self.ban, args=(host, reason, False,))    
             self.op(self.params['chan'], self.params['nick'])
         
     
@@ -352,7 +352,7 @@ class ActiveBot(BaseBot):
         if self._flags['o']:
             self.send('MODE %s -b %s' % (self.params['chan'], host))
         elif auto_op:
-            self.queue_op_add(target=self.unban, args=(host, False))    
+            self.queue_op_add(target=self.unban, args=(host, False,))    
             self.op(self.params['chan'], self.params['nick'])
     
     def names(self): 
@@ -404,7 +404,7 @@ class ActiveBot(BaseBot):
             elif(line[1] == "JOIN"):                        # JOIN
                 return self.recv_join(line)
             elif(line[1] == "KICK"):                        # KICK
-                return self.join(self.params['chan'])
+                return self.recv_kick(line)
             elif(line[1] == "NOTICE"):                      # NOTICE
                 return self.recv_notice(line)
             elif(line[1] == "NICK"):                        # NICK
@@ -472,6 +472,8 @@ class ActiveBot(BaseBot):
             @var line: The text received broken into tokens
             @summary: KICK was received            
         '''
+        if line[3] == self.params['nick']:              # If bot is kicked
+            self.join(self.params['chan'])  
         return True
     
     def recv_notice(self, line):
@@ -499,21 +501,22 @@ class ActiveBot(BaseBot):
         '''
             @var line: The text received broken into tokens
             @summary: MODE was received            
-        '''
-        mode = line[3][:1] 
-        if mode == ":":
-            mode = line[3][1:2]           
-            flags = line[3][2:]
-        else:                  
-            flags = line[3][1:]
-        for c in flags:
-            self._flags[c] = (mode == '+')
-        
-        if mode == '+':
-            self.on_mode_set()
-        else:
-            self.on_mode_reset()
-                
+        '''        
+        if len(line) > 4 and line[4] == self.params['nick']:
+            mode = line[3][:1]
+            if mode == ":":
+                mode = line[3][1:2]           
+                flags = line[3][2:]
+            else:                  
+                flags = line[3][1:]
+            for c in flags:
+                self._flags[c] = (mode == '+')
+            
+            if mode == '+':
+                self.on_mode_set()
+            else:
+                self.on_mode_reset()
+                    
         return True
     
     # Control Messages
@@ -646,7 +649,7 @@ class QircBot(ActiveBot):
                 self._special_users.append('(?P<%s>%s)' % (k, '|'.join(v['members'])))
         self._special_users.append('(?P<%s>%s)' % ('others', '|'.join(self._masters['others']['members'])))
                
-        self._regexes['userhost'] = re.compile(r'([^=]*)=\+(.*$)')
+        self._regexes['userhost'] = re.compile(r'([^=]*)=[+-](.*$)')
         self._regexes['special'] = re.compile(r'^:([^!]+)!~*(%s)$' % '|'.join(self._special_users))
         self._regexes['cmd'] = re.compile(r'^([\S]+) ?([\S]+)? ?(.+)?$')
         self._regexes['msg'] = re.compile(r'^!(\w+)(?:\s*-([\w-]+))?(?: *(.*))?$')
@@ -885,19 +888,20 @@ class QircBot(ActiveBot):
                 self._werewolf.lynch(nick, m.group(1))
                 return True
                
-        use_nick = silence = False
+        use_nick = False
+        silence = True
 
         m = self._regexes['msg'].search(msg)        
         if m:    
             use_nick = True                             # If it's a command then use nick to address the caller
-            
+            silence = False
             if m.group(2):                              # Explode flags
                 flags = list(m.group(2))
             else:
                 flags = []
                 
             if m.group(1) == 'help':                
-                r = 'commands are: !help, !wiki [-p], !wolf [-p], !g [-p], !tdf [-p], !urban [-p], !weather [-p], !forecast [-p], !vote, {!votekick}, {!votearma}, !roll, !game'
+                r = 'commands are: !help, !wiki [-p], !wolf [-p], !g [-p], !tdf [-p], !urban [-p], !weather [-p], !forecast [-p], !ip [-p], !geo [-p], !vote, {!votekick}, {!votearma}, !roll, !game'
             elif m.group(1) == 'wiki':            
                 r = Search.wiki(m.group(3))
             elif m.group(1) == 'wolf':
@@ -928,7 +932,17 @@ class QircBot(ActiveBot):
                     r = Search.forecast(m.group(3))
                 else:
                     self.notice(nick, '!forecast <place>')
-                    
+            elif m.group(1) == 'ip':
+                if m.group(3):
+                    r = Search.iplocate(m.group(3))
+                else:
+                    self.notice(nick, '!iplocate <ip>')                        
+            elif m.group(1) == 'geo':
+                if m.group(3):
+                    l = m.group(3).split()
+                    r = Search.geo(l[0], l[1])
+                else:
+                    self.notice(nick, '!geo <latitude> <longitude>')
             elif m.group(1) == 'vote':
                 def vote_result(p, n, q):
                     vote = p - n
@@ -938,30 +952,39 @@ class QircBot(ActiveBot):
                         self.say('The outcome is a draw! Bummer.')
                 self._vote.start(10, m.group(3), self.say, vote_result)                
                 silence = True
-            elif m.group(1) == 'votekick':
-                def vote_result(p, n, q):
-                    vote = p - n
-                    if vote > 0:                        
-                        self.say('The general public (%d) has agreed to kick %s' % (p + n, m.group(3)))
-                        self.kick(m.group(3), 'Nobody likes you!')
-                    elif vote < 0:                        
-                        self.say('The general public (%d) has disagreed to kick %s' % (p + n, m.group(3)))
-                    else:
-                        self.say('The outcome is a draw! %s is saved.' % m.group(3))
-                if m.group(3) and self._masters[level]['auth'] < 3:
-                    self._vote.start(10, 'kick %s' % m.group(3), self.say, vote_result)                
+            elif m.group(1) == 'votekick':                
+                if m.group(3) and self._masters[level]['auth'] < 3:                    
+                    msg_u = m.group(3).split(' ')
+                    kick_users = msg_u[0]
+                    kick_reason = ' '.join(msg_u[1:])                    
+                    # Define callback                    
+                    def vote_result(p, n, q):
+                        vote = p - n
+                        if vote > 0:                        
+                            self.say('The general public (%d) has agreed to kick %s' % (p + n, kick_users))
+                            for u in kick_users.split(','):
+                                self.kick(u, kick_reason)
+                        elif vote < 0:                        
+                            self.say('The general public (%d) has disagreed to kick %s' % (p + n, kick_users))
+                        else:
+                            self.say('The outcome is a draw! %s is/are saved.' % kick_users)
+                    # Call
+                    self._vote.start(10, 'kick %s %s' % (kick_users, kick_reason), self.say, vote_result)                
                 silence = True
-            elif m.group(1) == 'votearma':                                
-                def vote_result(p, n, q):
-                    vote = p - n
-                    if vote > 0:
-                        self.say('The general public (%d) has agreed to bring forth armageddon upon %s' % (p + n, m.group(3)))
-                        self.arma([m.group(3)])
-                    elif vote < 0:
-                        self.say('The general public (%d) has disagreed to bring forth armageddon upon %s' % (p + n, m.group(3)))
-                    else:
-                        self.say('The outcome is a draw! %s is saved.' % m.group(3))            
+            elif m.group(1) == 'votearma':                                                                        
                 if m.group(3) and self._masters[level]['auth'] < 3:
+                    
+                    # Define calback
+                    def vote_result(p, n, q):
+                        vote = p - n
+                        if vote > 0:
+                            self.say('The general public (%d) has agreed to bring forth armageddon upon %s' % (p + n, m.group(3)))                            
+                            self.arma(m.group(3).split(','))
+                        elif vote < 0:
+                            self.say('The general public (%d) has disagreed to bring forth armageddon upon %s' % (p + n, m.group(3)))
+                        else:
+                            self.say('The outcome is a draw! %s is saved.' % m.group(3))
+                    # Call    
                     self._vote.start(10, 'Bring forth armageddon upon %s?' % m.group(3), self.say, vote_result)                
                 silence = True
             elif m.group(1) == 'roll':
@@ -1056,7 +1079,7 @@ class QircBot(ActiveBot):
             for u in self._arma_resetlist:
                 self.unban(u, False)
         elif auto_op:
-            self.queue_op_add(target=self.arma_recover, args=(False)) 
+            self.queue_op_add(target=self.arma_recover, args=(False,)) 
             self.op(self.params['chan'], self.params['nick'])  
             
     def chunk(self,l, n):

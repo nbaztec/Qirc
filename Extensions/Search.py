@@ -11,6 +11,12 @@ from Util.BeautifulSoup import BeautifulSoup
 from Util import htmlx
 from Util.Log import Log
 
+appid = {
+            'google'    : '',
+            'wolf'      : '',
+            'ipinfo'    : ''
+        }
+
 def to_celcius(f):
     return (float(f)-32)*5/9
 
@@ -38,7 +44,7 @@ def wolfram(query):
         @summary: Performs calculation on Wolfram Alpha and returns the results
     '''    
     try:        
-        response = urllib2.urlopen('http://api.wolframalpha.com/v2/query?appid=XXXX&input=%s&format=plaintext' % urllib.quote(query))        
+        response = urllib2.urlopen('http://api.wolframalpha.com/v2/query?appid=%s&input=%s&format=plaintext' % (appid['wolf'], urllib.quote(query)))        
         page = response.read()                            
         response.close()
         soup = BeautifulSoup(page)            
@@ -62,7 +68,7 @@ def google(query, num=1):
         @attention: Google's description requires unescaping twice
     '''  
     try:        
-        response = urllib2.urlopen('https://www.googleapis.com/customsearch/v1?key=XXXX&cx=013036536707430787589:_pqjad5hr1a&q=%s&alt=atom&num=%d' % (urllib.quote(query), num))        
+        response = urllib2.urlopen('https://www.googleapis.com/customsearch/v1?key=%s&cx=013036536707430787589:_pqjad5hr1a&q=%s&alt=atom&num=%d' % (appid['google'], urllib.quote(query), num))
         page = response.read()                            
         response.close()
         soup = BeautifulSoup(page)            
@@ -80,7 +86,7 @@ def tdf(query):
         @summary: Performs a Google search on thinkdigit forum and returns the first result
     '''  
     try:        
-        response = urllib2.urlopen('https://www.googleapis.com/customsearch/v1?key=XXXX&cx=013036536707430787589:_pqjad5hr1a&q=%s&alt=atom&num=1&siteSearch=thinkdigit.com/forum/' % urllib.quote(query))        
+        response = urllib2.urlopen('https://www.googleapis.com/customsearch/v1?key=%s&cx=013036536707430787589:_pqjad5hr1a&q=%s&alt=atom&num=1&siteSearch=thinkdigit.com/forum/' % (appid['google'], urllib.quote(query)))        
         page = response.read()                            
         response.close()
         soup = BeautifulSoup(page)            
@@ -148,7 +154,44 @@ def forecast(place):
     except Exception, e:
         Log.write(e, 'E')
         return None
+    
+def iplocate(ip): 
+    '''
+        @var ip: The IP address
+        @summary: Performs a IP lookup and obtains the location of the user
+    '''     
+    try:
+        response = urllib2.urlopen('http://api.ipinfodb.com/v3/ip-city/?key=%s&format=xml&ip=%s' % (appid['ipinfo'], urllib.quote(ip)))        
+        page = response.read()                            
+        response.close()
+        soup = BeautifulSoup(page)
+        reply = soup.find('response')
+        if reply.find('statuscode').find(text=True) == "OK":            
+            r_lat = str((reply.find('latitude').find(text=True)))
+            r_long = str(reply.find('longitude').find(text=True))
+            return '%s belongs to %s' % (ip, geo(r_lat, r_long))
+        else:
+            return None
+    except Exception, e:
+        Log.write(e, 'E')
+        return None
         
+def geo(latitude, longitude): 
+    '''
+        @var latitude: The latitude of location
+        @var longitude: The longitude of location
+        @summary: Performs a reverse geo lookup on Google Maps API
+    '''     
+    try:
+        response = urllib2.urlopen('http://maps.googleapis.com/maps/api/geocode/xml?latlng=%s,%s&sensor=false' % (latitude, longitude))        
+        page = response.read()                            
+        response.close()
+        soup = BeautifulSoup(page)
+        address = str(soup.find('result').find('formatted_address').find(text=True))        
+        return '[%s, %s] : %s' % (latitude, longitude, address)        
+    except Exception, e:
+        Log.write(e, 'E')
+        return None
 def translate(msg):    
     '''
         @var msg: Message to translate
