@@ -7,6 +7,7 @@ Created on Jun 7, 2012
 from Extensions import Play, Search
 from Extensions.CleverBot import CleverBot
 from Extensions.VoteMaster import VoteMaster
+from Extensions.Communicator import UserMessage
 from Extensions.Werewolf import Werewolf
 from PseudoIntelligence import PseudoIntelligence
 from Util import htmlx
@@ -619,6 +620,7 @@ class QircBot(ActiveBot):
         self._intelli = PseudoIntelligence()    # AI module, Work in development                      
         self._cb = CleverBot()
         self._vote = VoteMaster()
+        self._usermsg = UserMessage()
         self._werewolf = Werewolf(callback=self.say, pm=self.notice)
                         
         self._masters = {
@@ -634,7 +636,7 @@ class QircBot(ActiveBot):
                                         },
                             'mgr'   :   {                
                                             'auth'    : 2,         
-                                            'members' : ['Vyom@unaffiliated/vy0m', '@unaffiliated/thatsashok'],
+                                            'members' : ['Vyom@unaffiliated/vy0m', '@unaffiliated/thatsashok', 'noobjoe@unaffiliated/noobjoe'],
                                             'powers'  : ['help', 'voice', 'op', 'deop', 'kick', 'ban', 'unban']
                                         },
                             'others':   {                
@@ -653,10 +655,10 @@ class QircBot(ActiveBot):
         self._regexes['special'] = re.compile(r'^:([^!]+)!~*(%s)$' % '|'.join(self._special_users))
         self._regexes['cmd'] = re.compile(r'^([\S]+) ?([\S]+)? ?(.+)?$')
         self._regexes['msg'] = re.compile(r'^!(\w+)(?:\s*-([\w-]+))?(?: *(.*))?$')
-        
+        self._regexes['msg-action'] = re.compile(r'^%s[\s,:]+([\S]+)?(?:\s+([\S]+))?(?:\s+(.*))?' % self.params['nick'])    
         self._arma_whitelist = [
-                                    'nbaztec@unaffiliated/nbaztec', 'QircBot@59\.178[.\d]+', 'nbaztec@krow\.me', 
-                                    'hsr@krow\.me', 'hsr@unaffiliated/hsr', 
+                                    'nbaztec@unaffiliated/nbaztec', 'nbaztec@krow\.me', 'nbaztec@85\.17\.214\.157',
+                                    'hsr@krow\.me', 'hsr@unaffiliated/hsr', 'hari@unaffiliated/hsr', 
                                     'ico@204\.176[.\d]+', 'niaaaa@59\.178[.\d]+', 'hahaha@unaffiliated/ico666',
                                     'lol@unaffiliated/lfc-fan/x-9923423',
                                     '@unaffiliated/thatsashok',
@@ -786,15 +788,15 @@ class QircBot(ActiveBot):
                         self.notice(nick, 'Commands are: help, quit, restart, op, deop, voice [on|off], logging [on|off], say, join, me, notice, kick, ban, unban, arma, armageddon, armarecover')
                     else:
                         self.notice(nick, 'Commands are: %s' % ', '.join(self._masters[level]['powers']))
-                elif m.group(1) == 'quit':           
+                elif m.group(1) == 'quit':                      
                     try:
-                        self.close()
-                        if m.group(2):
-                            self.disconnect(m.group(2))                
+                        self.close()                                            
+                        if m.group(2) is not None:
+                            self.disconnect(' '.join(filter(None, m.groups()[1:])))                
                         else:
                             self.disconnect("I'll be back.")                                        
                     except Exception, e:
-                        Log.write('QircBot.read, %s' % e, 'E')
+                        Log.write('QircBot.parse_cmd, %s' % e, 'E')
                     finally:        
                         Log.stop()        
                         return False
@@ -870,6 +872,12 @@ class QircBot(ActiveBot):
             @summary: Specifies additional rules as the general purpose responses
         '''
         Log.write("Extended Message %s" % msg)                            
+        # Tell Messages
+        messages = self._usermsg.get(nick)
+        if messages:
+            for sender, msg in messages:
+                self.say('%s, %s said "%s"' % (nick, sender, msg))
+        
         # Commands
         r = None
         
@@ -901,16 +909,14 @@ class QircBot(ActiveBot):
                 flags = []
                 
             if m.group(1) == 'help':                
-                r = 'commands are: !help, !wiki [-p], !wolf [-p], !g [-p], !tdf [-p], !urban [-p], !weather [-p], !forecast [-p], !ip [-p], !geo [-p], !vote, {!votekick}, {!votearma}, !roll, !game'
+                r = 'commands are: !help, !wiki, !wolf, !g, !tdf, !urban, !weather, !forecast, !ip, !geo, !vote, {!votekick}, {!votearma}, !roll, !game. Switches, -p: Private, -tXX: Get the XXth search result.'
             elif m.group(1) == 'wiki':            
                 r = Search.wiki(m.group(3))
             elif m.group(1) == 'wolf':
                 r = Search.wolfram(m.group(3))
             elif m.group(1) == 'g':
                 try:
-                    #print flags
-                    i = flags.index('t')
-                    #print i, ''.join(flags[i+1:])
+                    i = flags.index('t')                    
                     r = Search.google(m.group(3), int(''.join(flags[i+1:])))
                 except:
                     r = Search.google(m.group(3))                
@@ -1002,13 +1008,20 @@ class QircBot(ActiveBot):
                 silence = True
         else:
             use_nick = False    
-            if re.search(r'^' + self.params['nick'] + r'\b', msg):     # If bot's name is present
-                clean_msg = re.sub(r'\b' + self.params['nick'] + r'\b', '', msg)            
-                reply = self._intelli.reply(msg, nick)                  # Use AI for replying
-                if not reply:                    
-                    reply = htmlx.unescape(self._cb.ask(clean_msg))
-                self.say(reply)                                         # Use AI for replying                
-                
+            m = self._regexes['msg-action'].search(msg)            
+            if m:
+                if m.group(1) == 'tell':
+                    self._usermsg.post(nick, m.group(2), m.group(3))                
+                elif self.parse_verb(m.group(1), m.group(2), m.group(3)):   # Call a function for additional operation, which can be extended later
+                    pass
+                else:
+                    clean_msg = filter(None, m.groups())
+                    reply = self._intelli.reply(msg, nick)                  # Use AI for replying
+                    if not reply:  
+                        reply = self._cb.ask(clean_msg)
+                    if reply:                                               # If there's some valid reply                  
+                        reply = htmlx.unescape(reply)
+                        self.say(reply)                                         # Use AI for replying   
         # Say if some output was returned
         if r:
             r = r[:255]
@@ -1025,6 +1038,24 @@ class QircBot(ActiveBot):
             else:
                 self.say("No results for you %s." % nick)                              
             
+    def parse_verb(self, verb, nick, text):
+        '''
+            @var verb: The action text
+            @var nick: The nick part
+            @var text: The text message
+            @summary: Parses verbs to present action for the bot 
+        '''                
+        if verb in ['dodge', 'give', 'steal', 'take', 'catch', 'arm', 'engage', 'assault', 'launch', 'slit', 'poke', 'strip', 'disarm', 'fire', 'attack', 'chase', 'create', 'make', 'relieve', 'show', 'escort', 'push', 'pull', 'throw', 'feed', 'fuck', 'sell', 'buy', 'oblige', 'demolish', 'destroy']:
+            verb += 'es' if verb.endswith(('s', 'z', 'x', 'sh', 'ch'), -2) else 's'            
+            if nick is not None:
+                if text is None:
+                    text = ''
+                self.action('%s %s %s' % (verb, nick, text))
+        elif verb == 'slap':
+            self.action('bitchslaps %s' % (nick))
+        else:
+            return False
+        return True
         
     # WARNING: Do you know what you are doing?
     def armageddon(self, build=False):  
@@ -1040,6 +1071,10 @@ class QircBot(ActiveBot):
         elif self._armastep == 1:                       # Stage 2, Prepare userhosts
             self._armastep += 1         
             self.userhosts = {}                         # Fresh list of userhosts
+            try:
+                self._usernames.remove(self.params['nick']) # Remove bot's nick from the list
+            except:
+                pass
             self.username_count = len(self._usernames)
             for uchunk in self.chunk(self._usernames, 5):   
                 self.send("USERHOST %s" % ' '.join(uchunk))
@@ -1088,4 +1123,4 @@ class QircBot(ActiveBot):
             @var n: Number of elements per chunk
             @summary: Splits a list into chunks having n elements each
         '''
-        return [l[i:i+n] for i in range(0, len(l), n)]                
+        return [l[i:i+n] for i in range(0, len(l), n)]                            
