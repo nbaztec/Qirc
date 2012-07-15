@@ -36,32 +36,32 @@ Help:
 
 
 Eg:
-```> !help  
-\> Enter <command> -h for help on the respective command  
-> Commands:    
->     !help             Shows this help  
->     !search, !s       Search for a term on various sites  
->     !calc, !c         Perform some calculation  
->     !define, !d       Get the meaning, antonyms, etc, for a term  
->     !weather, !w      Get weather and forecasts for a location  
->     !locate, !l       Locate a user, IP or coordinate  
->     !url              Perform operation on an url,    
->                       Use %N (max 5) to access an earlier url  
->     !user             Perform operation related to user  
->     !vote             Start a vote  
->     !roll             Roll a dice  
->     !game             Begin a game    
-> !search -h  
-> Options  
->   -h, --help            show this help message  
->   -p, --private         Get results in private  
->   -t N, --result=N      Get the N'th result  
->   -1, --single          Output single line of title  
->   -g, --google          Search on Google [Default]  
->   -i, --gimage          Search on Google Images  
->   -y, --youtube         Search on Youtube  
->   -w, --wiki            Search on Wikipedia  
->   -m, --imdb            Search on IMDB  
->   -f, --tdf             Search on TDF  
->   -c CUSTOM, --custom=CUSTOM  
->                         Search on a custom site  ```
+```>!help  
+\>Enter <command> -h for help on the respective command  
+\>Commands:    
+\>    !help             Shows this help  
+\>    !search, !s       Search for a term on various sites  
+\>    !calc, !c         Perform some calculation  
+\>    !define, !d       Get the meaning, antonyms, etc, for a term  
+\>    !weather, !w      Get weather and forecasts for a location  
+\>    !locate, !l       Locate a user, IP or coordinate  
+\>    !url              Perform operation on an url,    
+\>                      Use %N (max 5) to access an earlier url  
+\>    !user             Perform operation related to user  
+\>    !vote             Start a vote  
+\>    !roll             Roll a dice  
+\>    !game             Begin a game    
+\>!search -h  
+\>Options  
+\>  -h, --help            show this help message  
+\>  -p, --private         Get results in private  
+\>  -t N, --result=N      Get the N'th result  
+\>  -1, --single          Output single line of title  
+\>  -g, --google          Search on Google [Default]  
+\>  -i, --gimage          Search on Google Images  
+\>  -y, --youtube         Search on Youtube  
+\>  -w, --wiki            Search on Wikipedia  
+\>  -m, --imdb            Search on IMDB  
+\>  -f, --tdf             Search on TDF  
+\>  -c CUSTOM, --custom=CUSTOM  
+\>                        Search on a custom site```
