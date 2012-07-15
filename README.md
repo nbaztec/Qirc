@@ -36,7 +36,7 @@ Help:
 
 
 Eg:
->\>!help  
+```\>!help  
 \>Enter <command> -h for help on the respective command  
 \>Commands:    
 \>    !help             Shows this help  
@@ -64,4 +64,4 @@ Eg:
 \>  -m, --imdb            Search on IMDB  
 \>  -f, --tdf             Search on TDF  
 \>  -c CUSTOM, --custom=CUSTOM  
-\>                        Search on a custom site  
+\>                        Search on a custom site  ```
