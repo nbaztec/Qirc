@@ -37,7 +37,7 @@ Help:
 
 Eg:
 ```> !help  
-> Enter <command> -h for help on the respective command  
+\> Enter <command> -h for help on the respective command  
 > Commands:    
 >     !help             Shows this help  
 >     !search, !s       Search for a term on various sites  
