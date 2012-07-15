@@ -9,6 +9,11 @@ from Extensions.Game import Werewolf
 from Extensions.User import Tell, Seen, Remind  
 from Extensions.CleverBot import CleverBot
 from Extensions.VoteMaster import VoteMaster
+<<<<<<< HEAD
+=======
+from Extensions.Communicator import UserMessage
+from Extensions.Werewolf import Werewolf
+>>>>>>> c688bd733499f152a271475b973087aea3f37dc5
 from PseudoIntelligence import PseudoIntelligence
 from QircOptionParser import QircOptionParser
 from QircDatabase import SqliteDb
@@ -669,11 +674,15 @@ class QircBot(ActiveBot):
         self._intelli = PseudoIntelligence()    # AI module, Work in development                      
         self._cb = CleverBot()
         self._vote = VoteMaster()
+<<<<<<< HEAD
         self._usermsg = {
                             'tell': Tell(),
                             'seen': Seen(self._qircdb),
                             'remind': Remind(self.say)
                          }                
+=======
+        self._usermsg = UserMessage()
+>>>>>>> c688bd733499f152a271475b973087aea3f37dc5
         self._werewolf = Werewolf(callback=self.say, pm=self.notice)
                         
         self._masters = {
@@ -689,7 +698,11 @@ class QircBot(ActiveBot):
                                         },
                             'mgr'   :   {                
                                             'auth'    : 2,         
+<<<<<<< HEAD
                                             'members' : ['unaffiliated/vy0m', 'unaffiliated/thatsashok', 'unaffiliated/noobjoe'],
+=======
+                                            'members' : ['Vyom@unaffiliated/vy0m', '@unaffiliated/thatsashok', 'noobjoe@unaffiliated/noobjoe'],
+>>>>>>> c688bd733499f152a271475b973087aea3f37dc5
                                             'powers'  : ['help', 'voice', 'op', 'deop', 'kick', 'ban', 'unban']
                                         },
                             'others':   {                
@@ -707,6 +720,7 @@ class QircBot(ActiveBot):
         self._regexes['userhost'] = re.compile(r'([^=]*)=[+-](.*$)')
         self._regexes['special'] = re.compile(r'^:([^!]+)!~*[^@]+@(%s)$' % '|'.join(self._special_users))         # Regex for matching hostmask of users
         self._regexes['cmd'] = re.compile(r'^([\S]+) ?([\S]+)? ?(.+)?$')
+<<<<<<< HEAD
         self._regexes['msg'] = re.compile(r'^!(\w+)\s*(.*)$')
         self._regexes['msg-action'] = re.compile(r'^%s[\s,:]+([\S]+)?(?:\s+([\S]+))?(?:\s+(.*))?' % self.params['nick'])        
         self._arma_whitelist = [
@@ -716,6 +730,17 @@ class QircBot(ActiveBot):
                                     'unaffiliated/lfc-fan/x-9923423',
                                     'unaffiliated/thatsashok',
                                     'services'
+=======
+        self._regexes['msg'] = re.compile(r'^!(\w+)(?:\s*-([\w-]+))?(?: *(.*))?$')
+        self._regexes['msg-action'] = re.compile(r'^%s[\s,:]+([\S]+)?(?:\s+([\S]+))?(?:\s+(.*))?' % self.params['nick'])    
+        self._arma_whitelist = [
+                                    'nbaztec@unaffiliated/nbaztec', 'nbaztec@krow\.me', 'nbaztec@85\.17\.214\.157',
+                                    'hsr@krow\.me', 'hsr@unaffiliated/hsr', 'hari@unaffiliated/hsr', 
+                                    'ico@204\.176[.\d]+', 'niaaaa@59\.178[.\d]+', 'hahaha@unaffiliated/ico666',
+                                    'lol@unaffiliated/lfc-fan/x-9923423',
+                                    '@unaffiliated/thatsashok',
+                                    'ChanServ@services'
+>>>>>>> c688bd733499f152a271475b973087aea3f37dc5
                                 ]  
         
         self._last5urls = deque(maxlen=5)        # For URL module
@@ -886,8 +911,13 @@ class QircBot(ActiveBot):
                             self.disconnect(' '.join(filter(None, m.groups()[1:])))                
                         else:
                             self.disconnect("I'll be back.")                                        
+<<<<<<< HEAD
                     except Exception:
                         Log.error('QircBot.parse_cmd: ')
+=======
+                    except Exception, e:
+                        Log.write('QircBot.parse_cmd, %s' % e, 'E')
+>>>>>>> c688bd733499f152a271475b973087aea3f37dc5
                     finally:        
                         Log.stop()        
                         return False
@@ -970,11 +1000,17 @@ class QircBot(ActiveBot):
             @var msg: Message for bot
             @summary: Specifies additional rules as the general purpose responses
         '''
+<<<<<<< HEAD
         Log.write("Extended Message %s" % msg)    
         self.append_if_url(msg)                     # Check for URL
         
         # Tell Messages
         messages = self._usermsg['tell'].get(nick)
+=======
+        Log.write("Extended Message %s" % msg)                            
+        # Tell Messages
+        messages = self._usermsg.get(nick)
+>>>>>>> c688bd733499f152a271475b973087aea3f37dc5
         if messages:
             for sender, msg in messages:
                 self.say('%s, %s said "%s"' % (nick, sender, msg))
@@ -1011,6 +1047,7 @@ class QircBot(ActiveBot):
             options = None            
             
             if m.group(1) == 'help':                
+<<<<<<< HEAD
                 self.send_multiline(self.notice, nick, """Enter <command> -h for help on the respective command
 Commands: 
     !help             Shows this help
@@ -1030,6 +1067,46 @@ Commands:
                 (cmd_msg, options, args) = self._qircoptparse.parse(m.group(1), m.group(2).split())                
                 if cmd_msg is None:
                     silence = True
+=======
+                r = 'commands are: !help, !wiki, !wolf, !g, !tdf, !urban, !weather, !forecast, !ip, !geo, !vote, {!votekick}, {!votearma}, !roll, !game. Switches, -p: Private, -tXX: Get the XXth search result.'
+            elif m.group(1) == 'wiki':            
+                r = Search.wiki(m.group(3))
+            elif m.group(1) == 'wolf':
+                r = Search.wolfram(m.group(3))
+            elif m.group(1) == 'g':
+                try:
+                    i = flags.index('t')                    
+                    r = Search.google(m.group(3), int(''.join(flags[i+1:])))
+                except:
+                    r = Search.google(m.group(3))                
+            elif m.group(1) == 'tdf':
+                r = Search.tdf(m.group(3))
+            elif m.group(1) == 'urban':
+                try:
+                    i = flags.index('t')
+                    r = Search.urbandefine(m.group(3), int(''.join(flags[i+1:])))
+                except:
+                    r = Search.urbandefine(m.group(3)).replace('\n', ' ')
+            elif m.group(1) == 'weather':
+                if m.group(3):
+                    r = Search.weather(m.group(3))
+                else:
+                    self.notice(nick, '!weather <place>')
+            elif m.group(1) == 'forecast':
+                if m.group(3):
+                    r = Search.forecast(m.group(3))
+                else:
+                    self.notice(nick, '!forecast <place>')
+            elif m.group(1) == 'ip':
+                if m.group(3):
+                    r = Search.iplocate(m.group(3))
+                else:
+                    self.notice(nick, '!iplocate <ip>')                        
+            elif m.group(1) == 'geo':
+                if m.group(3):
+                    l = m.group(3).split()
+                    r = Search.geo(l[0], l[1])
+>>>>>>> c688bd733499f152a271475b973087aea3f37dc5
                 else:
                     if args is None:
                         self.send_multiline(self.notice, nick, options)
@@ -1191,10 +1268,16 @@ Commands:
             use_nick = False    
             m = self._regexes['msg-action'].search(msg)            
             if m:
+<<<<<<< HEAD
                 #if m.group(1) == 'tell':
                 #    self._usermsg['tell'].post(nick, m.group(2), m.group(3))
                 #    self.notice(nick, 'Ok, I will convey the message to %s' % m.group(2))                
                 if self.parse_verb(m.group(1), m.group(2), m.group(3)):   # Call a function for additional operation, which can be extended later
+=======
+                if m.group(1) == 'tell':
+                    self._usermsg.post(nick, m.group(2), m.group(3))                
+                elif self.parse_verb(m.group(1), m.group(2), m.group(3)):   # Call a function for additional operation, which can be extended later
+>>>>>>> c688bd733499f152a271475b973087aea3f37dc5
                     pass
                 else:
                     clean_msg = filter(None, m.groups())
@@ -1319,4 +1402,8 @@ Commands:
             @var n: Number of elements per chunk
             @summary: Splits a list into chunks having n elements each
         '''
+<<<<<<< HEAD
         return [l[i:i+n] for i in range(0, len(l), n)]
+=======
+        return [l[i:i+n] for i in range(0, len(l), n)]                            
+>>>>>>> c688bd733499f152a271475b973087aea3f37dc5

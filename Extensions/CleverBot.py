@@ -98,8 +98,13 @@ class CleverBot(object):
             msg = resp.read()
             resp.close()
             return self.parse_response(msg)
+<<<<<<< HEAD
         except Exception:
             Log.error()
+=======
+        except Exception, e:
+            Log.write(e, 'E')
+>>>>>>> c688bd733499f152a271475b973087aea3f37dc5
             return None                    
                 
     def parse_response(self, resp):                       
