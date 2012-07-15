@@ -1,6 +1,5 @@
 '''
 Created on Jun 9, 2012
-
 @author: Nisheeth
 '''
 
@@ -13,7 +12,7 @@ from Util import htmlx
 
 class CleverBot(object):
     '''
-    classdocs
+        CleverBot handles the interaction between the bot by replying using cleverbot.com 
     '''
     def __init__(self, params=None):
         self.params = {
@@ -96,12 +95,12 @@ class CleverBot(object):
             self.data['icognocheck'] = self.query_hash(self.data)            
             req = urllib2.Request(self.params['url'], urllib.urlencode(self.data), self.headers)
             resp = self.opener.open(req)
-            return self.parse_response(resp.read())
-        except Exception, e:
-            Log.write(e, 'E')
-            return None
-        finally:
+            msg = resp.read()
             resp.close()
+            return self.parse_response(msg)
+        except Exception:
+            Log.error()
+            return None                    
                 
     def parse_response(self, resp):                       
         for k,v in zip(self.response_keys, resp.split("\r")):

@@ -59,7 +59,7 @@ class VoteMaster(object):
             @summary: Calls the timeout of voting period
         '''        
         self.is_voting = True
-        time.sleep(10)                          # 10 second time for vote
+        time.sleep(self._time)                          # 10 second time for vote
         self.is_voting = False
         self.result()
         

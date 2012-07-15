@@ -36,3 +36,6 @@ def unescape(text):
 
 def normalized_ascii(s):
         return unicodedata.normalize('NFKD', s).encode('ascii', 'strict')
+    
+def fixjson(text):
+    return re.sub("([a-z]+):", '"\\1" :',text)

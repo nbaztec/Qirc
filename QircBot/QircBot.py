@@ -1,14 +1,17 @@
 '''
 Created on Jun 7, 2012
 @author: Nisheeth
-@version: 2.0
+@version: 3.0 Deadpool
 '''
 
-from Extensions import Play, Search
+from Extensions import Search, Calc, Weather, Define, Locate, Url, Roll
+from Extensions.Game import Werewolf
+from Extensions.User import Tell, Seen, Remind  
 from Extensions.CleverBot import CleverBot
 from Extensions.VoteMaster import VoteMaster
-from Extensions.Werewolf import Werewolf
 from PseudoIntelligence import PseudoIntelligence
+from QircOptionParser import QircOptionParser
+from QircDatabase import SqliteDb
 from Util import htmlx
 from Util.Log import Log
 from Util.ThreadQueue import ThreadQueue
@@ -18,6 +21,7 @@ import random
 import re
 import socket
 import time
+from collections import deque
 
 class BaseBot(object):
     '''
@@ -53,22 +57,30 @@ class BaseBot(object):
         Log.write(self.params)
         
         self._regexes = {
-                            'name'  :   re.compile(r'^:([^!]+)!~*([^@]+)@(.*)$')                         
+                            'name'  :   re.compile(r'^:([^!]+)!([^@]+)@(.*)$'),
+                            'url'   :   re.compile(r'\b((?:telnet|ftp|rtsp|https?)://[^/]+[-\w_/?=%&+;#\\@]*)')                         
                          }
         
         self._sock = socket.socket();
-        self._retry_timeout = 15                # 15 seconds connection retry
         self._success_callback = callback     
         self._lock = Lock()                     # mutex _lock [unused]                
-        self.orig_nick = self.params['nick']    # Store original nick for temp logins        
+        self.orig_nick = self.params['nick']    # Store original nick for temp logins
+        
+        BaseBot.reset_flags(self)
+        
+    def reset_flags(self):
+        '''
+            @summary: Resets the state flags of the bot 
+        '''
+        self._retry_timeout = 15                # 15 seconds connection retry                       
         self._voice = True                      # Voice ON or OFF
+        self._hearing = True
         self._has_quit = False                  # If a QUIT request was sent by the master
-                
         self._flags = {                         # Flags set on the bot
                             'o' : False,
                             'i' : False,
                             'v' : False
-                       }    
+                       }
         
     def close(self):
         '''
@@ -116,8 +128,8 @@ class BaseBot(object):
         try:            
             Log.write('Sending ' + msg)
             self._sock.send(msg + "\r\n")
-        except Exception, e:
-            Log.write('QircBot.send %s' % e, 'E')        
+        except Exception:
+            Log.error('QircBot.send: ')        
             
     def begin_read(self):
         '''
@@ -136,7 +148,7 @@ class BaseBot(object):
             chunk = '+'                             # Initially chunk not empty
             while run_read:
                 self.last_read = time.time()        # Last read time
-                chunk = self._sock.recv(2048)                
+                chunk = self._sock.recv(2048)               
                 if chunk == '':
                     raise Exception('Nothing received. Connection broken.')
                 else:                                    # If received something
@@ -145,8 +157,8 @@ class BaseBot(object):
                     self._read_buffer = temp.pop()            
                     run_read = self.parse_recv(temp)     # Dispatch message for parsing
                     
-        except Exception, e:
-            Log.write('QircBot.read, %s' % e,'E') 
+        except Exception:
+            Log.error('QircBot.read: ') 
                 
         self.cleanup()                              # Perform clean up
         self.on_terminate()                
@@ -204,24 +216,46 @@ class ActiveBot(BaseBot):
                                   'realname'    : 'QirckyBot'  
                                   'password'    : None                             
         '''
-        BaseBot.__init__(self, callback, params)
-        self._pong_recv = True                  # If PONG was received for the previous PING
-        self._ghost = False                     # Ghosting was requested
+        #BaseBot.__init__(self, callback, params)
+        super(ActiveBot, self).__init__(callback, params)
+        ActiveBot.reset_flags(self, False)                 # Initialize flags but do not bubble up, since already set by BaseBot.__init__()
         self._op_actions = ThreadQueue()        # ThreadQueue for OP functions
- 
+    
+    def reset_flags(self, bubble=True):
+        '''
+            @var bubble: Whether to reset the flags in the base class
+            @summary: Resets the state flags of the bot 
+        '''
+        self._joined = False
+        self._pong_recv = True
+        self._ghost = False
+        if bubble:
+            BaseBot.reset_flags(self)
+        
+    def cleanup(self):
+        '''
+            @summary: Performs any cleanup activity while qutting the bot
+        '''        
+        BaseBot.cleanup(self)
+        
     def server_ping(self):        
         '''
             @summary: Pings the server every 120 seconds to keep the connection alive
         '''
         counter = 0        
-        while self._pong_recv and not self.close_requested():           # If PONG was received for the previous PING, if not the connection is probably dead
-            self._pong_recv = False
-            if counter == 6:
-                counter = 0                        
+        time.sleep(25)                                                  # Wait 25 seconds for stabilizing                
+        while self._pong_recv and not self.close_requested():           # If PONG was received for the previous PING, if not the connection is probably dead            
+            self._pong_recv = False            
+            counter = 6
+            try:                        
                 self.ping()                                             # Send PING
-            else:
-                counter += 1
-            time.sleep(20)                                              # 6*20 second PING
+            except:
+                pass
+            while counter:  
+                time.sleep(3)                                              # 6*20 second PING              
+                counter -= 1                            
+        self.ping()                                             # Send FINAL PING
+        Log.write('Server Failed to respond to PONG', 'E')
             
     def queue_op_add(self, target, args=(), kwargs={}):
         '''
@@ -274,7 +308,7 @@ class ActiveBot(BaseBot):
             @summary: Sends a message to NickServ to ghost a NICK
         '''
         Log.write("Ghosting nick...")
-        self.send("PRIVMSG nickserv :ghost %s %s" % (nick, self.params['password']))
+        self.send("PRIVMSG nickserv :ghost %s %s" % (nick, self.params['password']))        
     
     def nick(self, nick):
         '''
@@ -401,6 +435,8 @@ class ActiveBot(BaseBot):
                 return self.recv_pong(line)
             elif(line[1] == "QUIT"):                        # QUIT
                 return self.recv_quit(line)
+            elif(line[1] == "PART"):                        # PART
+                return self.recv_part(line)
             elif(line[1] == "JOIN"):                        # JOIN
                 return self.recv_join(line)
             elif(line[1] == "KICK"):                        # KICK
@@ -455,10 +491,17 @@ class ActiveBot(BaseBot):
         user = m.group(1)
         if user == self.params['nick']:                    
             if ' '.join(line[2:]) == ":Disconnected by services":   # If bot is disconnected by services then do not retry [GHOSTING]
-                self.close()                                            
+                self.close()                                                      
             return False                                  # Terminate read thread
         else:
             return True
+        
+    def recv_part(self, line):
+        '''
+            @var line: The text received broken into tokens
+            @summary: PAR was received            
+        '''
+        return True
     
     def recv_join(self, line):
         '''
@@ -525,11 +568,12 @@ class ActiveBot(BaseBot):
             @var line: The text received broken into tokens
             @summary: The nick is already in use            
         '''                
-        self.params['nick'] += str(random.randrange(1,65535)) 
-        Log.write('Retrying with nick %s' % self.params['nick'])
-        self._ghost = self.params['password'] is not None   # Ghost other user/bot if password is specified
-        Log.write("GHOST %s" % self._ghost)
-        self.register()                                     # Retry registering
+        if not self._joined:
+            self.params['nick'] += str(random.randrange(1,65535)) 
+            Log.write('Retrying with nick %s' % self.params['nick'])
+            self._ghost = self.params['password'] is not None   # Ghost other user/bot if password is specified
+            Log.write("GHOST %s" % self._ghost)
+            self.register()                                     # Retry registering
         return True
     
     def recv_stat_endmotd(self, line):
@@ -542,9 +586,12 @@ class ActiveBot(BaseBot):
             self._ghost = False
         else:
             self.identify()                         # Normal join, just identify
-        self._armastep = 0                          # Init armageddon stage to 0
+        #self._joined = True
+        #self._armastep = 0                          # Init armageddon stage to 0
+        #self._has_quit = False                      # Initialize vars for PING loop
+        self.reset_flags()
         Thread(target=self._success_callback, args=(self,), name='callback').start()    # Call callback function
-        Thread(target=self.server_ping, name='QircBot.server_ping').start()     # Start pinger thread
+        Thread(target=self.server_ping, name='ActiveBot.server_ping').start()     # Start pinger thread
         return True
     
     def recv_stat_names(self, line):
@@ -614,27 +661,35 @@ class QircBot(ActiveBot):
                                   'realname'    : 'QirckyBot'  
                                   'password'    : None                             
         '''
-        ActiveBot.__init__(self, callback, params)
+        #ActiveBot.__init__(self, callback, params)
+        super(QircBot, self).__init__(callback, params)
+        self._qircoptparse = QircOptionParser()
+        self._qircdb = SqliteDb()
         
         self._intelli = PseudoIntelligence()    # AI module, Work in development                      
         self._cb = CleverBot()
         self._vote = VoteMaster()
+        self._usermsg = {
+                            'tell': Tell(),
+                            'seen': Seen(self._qircdb),
+                            'remind': Remind(self.say)
+                         }                
         self._werewolf = Werewolf(callback=self.say, pm=self.notice)
                         
         self._masters = {
                             'admin' :   {
                                             'auth'    : 0,
-                                            'members' : ['nbaztec@unaffiliated/nbaztec'],
+                                            'members' : ['unaffiliated/nbaztec'],
                                             'powers'  : None
                                         },
                             'mod'   :   {   
                                             'auth'    : 1,                      
-                                            'members' : ['hsr@unaffiliated/hsr', 'lol@unaffiliated/lfc-fan/x-9923423', 'hahaha@unaffiliated/ico666'],
+                                            'members' : ['unaffiliated/hsr', 'unaffiliated/lfc-fan/x-9923423', 'unaffiliated/ico666'],
                                             'powers'  : ['help', 'voice', 'op', 'deop', 'kick', 'ban', 'unban', 'armageddon', 'arma', 'armarecover']
                                         },
                             'mgr'   :   {                
                                             'auth'    : 2,         
-                                            'members' : ['Vyom@unaffiliated/vy0m', '@unaffiliated/thatsashok'],
+                                            'members' : ['unaffiliated/vy0m', 'unaffiliated/thatsashok', 'unaffiliated/noobjoe'],
                                             'powers'  : ['help', 'voice', 'op', 'deop', 'kick', 'ban', 'unban']
                                         },
                             'others':   {                
@@ -650,21 +705,33 @@ class QircBot(ActiveBot):
         self._special_users.append('(?P<%s>%s)' % ('others', '|'.join(self._masters['others']['members'])))
                
         self._regexes['userhost'] = re.compile(r'([^=]*)=[+-](.*$)')
-        self._regexes['special'] = re.compile(r'^:([^!]+)!~*(%s)$' % '|'.join(self._special_users))
+        self._regexes['special'] = re.compile(r'^:([^!]+)!~*[^@]+@(%s)$' % '|'.join(self._special_users))         # Regex for matching hostmask of users
         self._regexes['cmd'] = re.compile(r'^([\S]+) ?([\S]+)? ?(.+)?$')
-        self._regexes['msg'] = re.compile(r'^!(\w+)(?:\s*-([\w-]+))?(?: *(.*))?$')
-        
+        self._regexes['msg'] = re.compile(r'^!(\w+)\s*(.*)$')
+        self._regexes['msg-action'] = re.compile(r'^%s[\s,:]+([\S]+)?(?:\s+([\S]+))?(?:\s+(.*))?' % self.params['nick'])        
         self._arma_whitelist = [
-                                    'nbaztec@unaffiliated/nbaztec', 'QircBot@59\.178[.\d]+', 'nbaztec@krow\.me', 
-                                    'hsr@krow\.me', 'hsr@unaffiliated/hsr', 
-                                    'ico@204\.176[.\d]+', 'niaaaa@59\.178[.\d]+', 'hahaha@unaffiliated/ico666',
-                                    'lol@unaffiliated/lfc-fan/x-9923423',
-                                    '@unaffiliated/thatsashok',
-                                    'ChanServ@services'
+                                    'unaffiliated/nbaztec', 'krow\.me', '85\.17\.214\.157',                 # krow.me
+                                    'unaffiliated/hsr', 
+                                    '204\.176[.\d]+', '59\.178[.\d]+', 'unaffiliated/ico666',
+                                    'unaffiliated/lfc-fan/x-9923423',
+                                    'unaffiliated/thatsashok',
+                                    'services'
                                 ]  
+        
+        self._last5urls = deque(maxlen=5)        # For URL module
+        
+        self.reset_flags(False)
      
     # Overriden recv methods
-                   
+    def reset_flags(self, bubble=True):
+        '''
+            @var bubble: Whether to reset the flags in the base class
+            @summary: Resets the state flags of the bot 
+        '''
+        self._armastep = 0                          # Init armageddon stage to 0
+        if bubble:
+            ActiveBot.reset_flags(self)
+                       
     def recv_join(self, line):
         '''
             @var line: The text received broken into tokens
@@ -674,7 +741,8 @@ class QircBot(ActiveBot):
         user = m.group(1)
         if user == self.params['nick']:
             self.say('All systems go!')                    
-        #else:
+        else:
+            self._usermsg['seen'].join(m.group(1),m.group(2),m.group(3))
             #self.say('Hey ' + user)
         return True
     
@@ -683,9 +751,33 @@ class QircBot(ActiveBot):
             @var line: The text received broken into tokens
             @summary: KICK was received            
         '''
-        self.join(self.params['chan'])                          # Auto-join on KICK
-        return True
+        if ActiveBot.recv_kick(self, line):
+            self._usermsg['seen'].part(line[3],' '.join(line[4:]).lstrip(':'))
+            return True
+        else:
+            return False
     
+    def recv_quit(self, line):
+        '''
+            @var line: The text received broken into tokens
+            @summary: QUIT was received            
+        '''
+        if ActiveBot.recv_quit(self, line):
+            m = self._regexes['name'].match(line[0])
+            self._usermsg['seen'].part(m.group(1),' '.join(line[3]).lstrip(':'))
+            return True        
+        else:
+            return False
+    
+    def recv_part(self, line):
+        '''
+            @var line: The text received broken into tokens
+            @summary: PAR was received            
+        '''
+        m = self._regexes['name'].match(line[0])
+        self._usermsg['seen'].part(m.group(1),'PART')
+        return True
+       
     # Overriden recv_stat methods 
     
     def recv_stat_endnames(self, line):
@@ -722,7 +814,7 @@ class QircBot(ActiveBot):
             @summary: End of MOTD   
             @notice: Used to implement commands and actions
         '''
-        if line[2] == self.params['nick']:                    # If message is a pri$uge for bot
+        if line[2] == self.params['nick']:  # If message is a privmsg for bot
             m = self._regexes['special'].search(line[0])      # Extract user's details                                                                
             if m:                                             # Check if user is a master of bot
                 usr = None                          
@@ -730,7 +822,7 @@ class QircBot(ActiveBot):
                     if m.group(k):
                         usr = k
                         break;                    
-                if usr:                                       # If valid user   
+                if usr and (self._hearing or self._masters[usr]['auth'] == 0):    # If a valid user and hearing is enabled or user is admin
                     Thread(target=self.parse_cmd, args=(usr, m.group(1), m.group(2), str.lstrip(' '.join(line[3:]),':'),), name='parse_cmd').start()                        
         elif self._voice:                              
             m = self._regexes['special'].search(line[0])      # Extract user's details                                                                
@@ -741,7 +833,7 @@ class QircBot(ActiveBot):
                         usr = k
                         break;
                                    
-                if usr:                                       # Call extended parser in separate thread
+                if usr:                                       # Call extended parser in separate thread                    
                     Thread(target=self.parse_msg, args=(usr, m.group(1), m.group(2), str.lstrip(' '.join(line[3:]),':'),), name='extended_parse').start()
         return True 
     
@@ -757,6 +849,7 @@ class QircBot(ActiveBot):
             self._sock = socket.socket();
             Thread(target=self.start, name='start').start()
         else:    
+            self._usermsg['remind'].dispose()
             Log.write("Boom! Owww. *Dead*")
                     
     def on_mode_set(self):        
@@ -783,23 +876,31 @@ class QircBot(ActiveBot):
             if self._masters[level]['powers'] is None or m.group(1) in self._masters[level]['powers']:
                 if m.group(1) == 'help':
                     if self._masters[level]['powers'] is None:
-                        self.notice(nick, 'Commands are: help, quit, restart, op, deop, voice [on|off], logging [on|off], say, join, me, notice, kick, ban, unban, arma, armageddon, armarecover')
+                        self.notice(nick, 'Commands are: help, quit, restart, op, deop, hearing [on|off], voice [on|off], logging [on|off], say, join, me, notice, kick, ban, unban, arma, armageddon, armarecover')
                     else:
                         self.notice(nick, 'Commands are: %s' % ', '.join(self._masters[level]['powers']))
-                elif m.group(1) == 'quit':           
+                elif m.group(1) == 'quit':                      
                     try:
-                        self.close()
-                        if m.group(2):
-                            self.disconnect(m.group(2))                
+                        self.close()                                            
+                        if m.group(2) is not None:
+                            self.disconnect(' '.join(filter(None, m.groups()[1:])))                
                         else:
                             self.disconnect("I'll be back.")                                        
-                    except Exception, e:
-                        Log.write('QircBot.read, %s' % e, 'E')
+                    except Exception:
+                        Log.error('QircBot.parse_cmd: ')
                     finally:        
                         Log.stop()        
                         return False
                 elif m.group(1) == 'restart':
                         self.disconnect("Restarting")
+                elif m.group(1) == 'hearing':
+                    if m.group(2):
+                        if m.group(2) == 'on':
+                            self._hearing = True
+                        elif m.group(2) == 'off':
+                            self._hearing = False
+                    else:
+                        self.notice(nick, 'hearing is %s' % ('on' if self._hearing else 'off'))
                 elif m.group(1) == 'voice':
                     if m.group(2):
                         if m.group(2) == 'on':
@@ -827,7 +928,7 @@ class QircBot(ActiveBot):
                     else:
                         self.deop(m.group(2), self.params['nick'])
                 elif m.group(1) == 'say':
-                    self.say(m.group(2))
+                    self.say(' '.join(filter(None, m.groups()[1:])))
                 elif m.group(1) == 'join':
                     self.join(m.group(2))
                 elif m.group(1) == 'me':
@@ -859,7 +960,7 @@ class QircBot(ActiveBot):
                 else:
                     self.send(cmd)
             else:
-                self.notice(nick, 'You are not authorized to perform this operation. Type /msg %s help to see a list of commands' % self.params['nick'])
+                self.notice(nick, 'You are not authorized to perform this operation. Type /msg %s help to see your list of commands' % self.params['nick'])
         return True
                 
     def parse_msg(self, level, nick, host, msg):
@@ -869,7 +970,15 @@ class QircBot(ActiveBot):
             @var msg: Message for bot
             @summary: Specifies additional rules as the general purpose responses
         '''
-        Log.write("Extended Message %s" % msg)                            
+        Log.write("Extended Message %s" % msg)    
+        self.append_if_url(msg)                     # Check for URL
+        
+        # Tell Messages
+        messages = self._usermsg['tell'].get(nick)
+        if messages:
+            for sender, msg in messages:
+                self.say('%s, %s said "%s"' % (nick, sender, msg))
+        
         # Commands
         r = None
         
@@ -895,136 +1004,240 @@ class QircBot(ActiveBot):
         if m:    
             use_nick = True                             # If it's a command then use nick to address the caller
             silence = False
-            if m.group(2):                              # Explode flags
-                flags = list(m.group(2))
-            else:
-                flags = []
-                
+            #if m.group(2):                              # Explode flags
+            #    flags = list(m.group(2))
+            #else:
+            #    flags = []
+            options = None            
+            
             if m.group(1) == 'help':                
-                r = 'commands are: !help, !wiki [-p], !wolf [-p], !g [-p], !tdf [-p], !urban [-p], !weather [-p], !forecast [-p], !ip [-p], !geo [-p], !vote, {!votekick}, {!votearma}, !roll, !game'
-            elif m.group(1) == 'wiki':            
-                r = Search.wiki(m.group(3))
-            elif m.group(1) == 'wolf':
-                r = Search.wolfram(m.group(3))
-            elif m.group(1) == 'g':
-                try:
-                    #print flags
-                    i = flags.index('t')
-                    #print i, ''.join(flags[i+1:])
-                    r = Search.google(m.group(3), int(''.join(flags[i+1:])))
-                except:
-                    r = Search.google(m.group(3))                
-            elif m.group(1) == 'tdf':
-                r = Search.tdf(m.group(3))
-            elif m.group(1) == 'urban':
-                try:
-                    i = flags.index('t')
-                    r = Search.urbandefine(m.group(3), int(''.join(flags[i+1:])))
-                except:
-                    r = Search.urbandefine(m.group(3)).replace('\n', ' ')
-            elif m.group(1) == 'weather':
-                if m.group(3):
-                    r = Search.weather(m.group(3))
-                else:
-                    self.notice(nick, '!weather <place>')
-            elif m.group(1) == 'forecast':
-                if m.group(3):
-                    r = Search.forecast(m.group(3))
-                else:
-                    self.notice(nick, '!forecast <place>')
-            elif m.group(1) == 'ip':
-                if m.group(3):
-                    r = Search.iplocate(m.group(3))
-                else:
-                    self.notice(nick, '!iplocate <ip>')                        
-            elif m.group(1) == 'geo':
-                if m.group(3):
-                    l = m.group(3).split()
-                    r = Search.geo(l[0], l[1])
-                else:
-                    self.notice(nick, '!geo <latitude> <longitude>')
-            elif m.group(1) == 'vote':
-                def vote_result(p, n, q):
-                    vote = p - n
-                    if vote:
-                        self.say('The general public (%d) %s : %s' % ((p + n), 'agrees' if vote > 0 else 'disagrees', q))
-                    else:
-                        self.say('The outcome is a draw! Bummer.')
-                self._vote.start(10, m.group(3), self.say, vote_result)                
+                self.send_multiline(self.notice, nick, """Enter <command> -h for help on the respective command
+Commands: 
+    !help             Shows this help
+    !search, !s       Search for a term on various sites
+    !calc, !c         Perform some calculation
+    !define, !d       Get the meaning, antonyms, etc, for a term
+    !weather, !w      Get weather and forecasts for a location
+    !locate, !l       Locate a user, IP or coordinate
+    !url              Perform operation on an url, 
+                      Use %N (max 5) to access an earlier url
+    !user             Perform operation related to user
+    !vote             Start a vote
+    !roll             Roll a dice
+    !game             Begin a game""")
                 silence = True
-            elif m.group(1) == 'votekick':                
-                if m.group(3) and self._masters[level]['auth'] < 3:                    
-                    msg_u = m.group(3).split(' ')
-                    kick_users = msg_u[0]
-                    kick_reason = ' '.join(msg_u[1:])                    
-                    # Define callback                    
-                    def vote_result(p, n, q):
-                        vote = p - n
-                        if vote > 0:                        
-                            self.say('The general public (%d) has agreed to kick %s' % (p + n, kick_users))
-                            for u in kick_users.split(','):
-                                self.kick(u, kick_reason)
-                        elif vote < 0:                        
-                            self.say('The general public (%d) has disagreed to kick %s' % (p + n, kick_users))
-                        else:
-                            self.say('The outcome is a draw! %s is/are saved.' % kick_users)
-                    # Call
-                    self._vote.start(10, 'kick %s %s' % (kick_users, kick_reason), self.say, vote_result)                
-                silence = True
-            elif m.group(1) == 'votearma':                                                                        
-                if m.group(3) and self._masters[level]['auth'] < 3:
-                    
-                    # Define calback
-                    def vote_result(p, n, q):
-                        vote = p - n
-                        if vote > 0:
-                            self.say('The general public (%d) has agreed to bring forth armageddon upon %s' % (p + n, m.group(3)))                            
-                            self.arma(m.group(3).split(','))
-                        elif vote < 0:
-                            self.say('The general public (%d) has disagreed to bring forth armageddon upon %s' % (p + n, m.group(3)))
-                        else:
-                            self.say('The outcome is a draw! %s is saved.' % m.group(3))
-                    # Call    
-                    self._vote.start(10, 'Bring forth armageddon upon %s?' % m.group(3), self.say, vote_result)                
-                silence = True
-            elif m.group(1) == 'roll':
-                r = '%s rolled a %s.' % (nick, Play.roll())
-                use_nick = False
-            elif m.group(1) == 'game':
-                if 'werewolf' in ''.join(flags):
-                    #r = self._werewolf.start()
-                    r = 'Game is currently offline'
-                    use_nick = False
-                else:
-                    r = "-werewolf"
-                    use_nick = False                    
             else:
-                silence = True
+                (cmd_msg, options, args) = self._qircoptparse.parse(m.group(1), m.group(2).split())                
+                if cmd_msg is None:
+                    silence = True
+                else:
+                    if args is None:
+                        self.send_multiline(self.notice, nick, options)
+                        silence = True
+                    else:
+                        args = ' '.join(args)
+                        # Use default options as the last item of the if-else ladder
+                        # If they are first then they'll be used irrespective of other flags,
+                        # Since the default options are always True
+                        if cmd_msg == 'search':
+                            if options.custom:
+                                r = Search.customsearch(args, options.custom, options.result, options.single)              
+                            elif options.gimage:
+                                r = Search.googleimage(args, options.result, options.single)
+                            elif options.youtube:
+                                r = Search.youtube(args, options.result, options.single)
+                            elif options.wiki:
+                                r = Search.wiki(args, options.result, options.single)
+                            elif options.imdb:
+                                r = Search.imdb(args, options.result, options.single)
+                            elif options.tdf:
+                                r = Search.tdf(args, options.result, options.single)
+                            elif options.google:
+                                r = Search.google(args, options.result, options.single)
+                        elif cmd_msg == 'calc':                                            
+                            if options.google:
+                                r = Calc.googlecalc(args)
+                            elif options.wolf:
+                                r = Calc.wolfram(args)
+                        elif cmd_msg == 'define':                        
+                            if options.google:
+                                r = Define.googledefine(args, options.result)
+                            elif options.dictionary:
+                                pass                                        # TODO: Alternative source of dictionary
+                            elif options.antonym:
+                                pass                                        # TODO: Antonym
+                            elif options.etymology:
+                                pass                                        # TODO: Etymology
+                            elif options.urban:
+                                r = Define.urbandefine(args, options.result)
+                        elif cmd_msg == 'weather':
+                            if options.forecast:
+                                r = Weather.forecast(args, options.days)
+                            else:
+                                r = Weather.weather(args)
+                        elif cmd_msg == 'locate':
+                            if options.ip:
+                                r = Locate.iplocate(options.ip)
+                            elif options.coord:
+                                l = options.coord.split(',')
+                                r = Locate.geo(l[0], l[1])
+                        elif cmd_msg == 'user':
+                            if options.tell:
+                                self._usermsg['tell'].post(nick, options.tell, args)
+                                self.notice(nick, 'Ok, I will convey the message to %s' % options.tell)
+                                silence = True
+                            elif options.remind:         
+                                silence = True
+                                try:                   
+                                    r = self._usermsg['remind'].remind(nick, options.remind, args)
+                                    self.notice(nick, 'Reminder has been set')
+                                except Remind.RemindFormatError:
+                                    self.notice(nick, 'Invalid time format. Example 20s, 2m, 3h...')
+                                except Remind.RemindValueError, e:
+                                    self.notice(nick, e.message)
+                            elif options.seen:                            
+                                r = self._usermsg['seen'].seen(args)                                                                
+                        elif cmd_msg == 'url':                            
+                            try:
+                                m = re.match(r'^%(\d)$', args)                            
+                                if m:
+                                    args = self._last5urls[int(m.group(1))-1]                                                                       
+                            except Exception:
+                                r = 'No url exists for %' + m.group(1)
+                            else:
+                                if args.find('://', 0, 10) == -1:
+                                    args = 'http://' + args
+                                if options.title:
+                                    r = Url.title(args)
+                                elif options.content:
+                                    r = Url.content_type(args)
+                                elif options.preview:
+                                    r = Url.description(args)
+                                elif options.short:
+                                    r = Url.googleshort(args)
+                                elif options.expand:
+                                    r = Url.googleexpand(args)
+                                elif options.port:
+                                    r = Url.port(args, options.port)
+                                elif options.dns:                            
+                                    r = Url.dns(args)
+                                if r is None:                                   # Silence if no results
+                                    silence = True                                                                                            
+                        elif cmd_msg == 'vote':                                                
+                            if options.kick:                
+                                if self._masters[level]['auth'] < 3:                    
+                                    msg_u = args.split(' ')
+                                    kick_users = msg_u[0]
+                                    kick_reason = ' '.join(msg_u[1:])                    
+                                    # Define callback                    
+                                    def vote_result(p, n, q):                                        
+                                        if (p+n) > 1:
+                                            vote = p - n
+                                            if vote > 0:                        
+                                                self.say('The general public (%d) has agreed to kick %s' % (p + n, kick_users))
+                                                for u in kick_users.split(','):
+                                                    self.kick(u, kick_reason)
+                                            elif vote < 0:                        
+                                                self.say('The general public (%d) has disagreed to kick %s' % (p + n, kick_users))
+                                            else:
+                                                self.say('The outcome is a draw! %s is/are saved.' % kick_users)
+                                        else:
+                                            self.say('A minimum of 2 votes are required for taking decision.')
+                                    # Call
+                                    self._vote.start(options.interval, 'kick %s %s' % (kick_users, kick_reason), self.say, vote_result)                
+                                silence = True
+                            elif options.arma:                                                                        
+                                if self._masters[level]['auth'] < 3:                                
+                                    # Define calback
+                                    def vote_result(p, n, q):
+                                        if (p+n) > 1:
+                                            vote = p - n
+                                            if vote > 0:
+                                                self.say('The general public (%d) has agreed to bring forth armageddon upon %s' % (p + n, args))                            
+                                                self.arma(args.split())
+                                            elif vote < 0:
+                                                self.say('The general public (%d) has disagreed to bring forth armageddon upon %s' % (p + n, args))
+                                            else:
+                                                self.say('The outcome is a draw! %s is/are saved.' % args)
+                                        else:
+                                            self.say('A minimum of 2 votes are required for taking decision.')
+                                    # Call    
+                                    self._vote.start(options.interval, 'Bring forth armageddon upon %s?' % args, self.say, vote_result)                
+                                silence = True
+                            else:                                       # Regular vote
+                                def vote_result(p, n, q):
+                                    vote = p - n
+                                    if vote:
+                                        self.say('The general public (%d) %s : %s' % ((p + n), 'agrees' if vote > 0 else 'disagrees', q))
+                                    else:
+                                        self.say('The outcome is a draw! Bummer.')
+                                self._vote.start(options.interval, args, self.say, vote_result)                
+                                silence = True
+                        elif cmd_msg == 'roll':
+                            if options.min > 0 and options.max > 0 and options.min < options.max:
+                                r = '%s rolled a %s.' % (nick, Roll.roll(options.min, options.max))
+                                use_nick = False
+                        elif cmd_msg == 'game':
+                            if args == 'werewolf':
+                                #r = self._werewolf.start()
+                                r = 'Game is currently offline'
+                                use_nick = False
+                            else:
+                                r = "-werewolf"
+                                use_nick = False                    
+                        else:
+                            silence = True        
         else:
             use_nick = False    
-            if re.search(r'^' + self.params['nick'] + r'\b', msg):     # If bot's name is present
-                clean_msg = re.sub(r'\b' + self.params['nick'] + r'\b', '', msg)            
-                reply = self._intelli.reply(msg, nick)                  # Use AI for replying
-                if not reply:                    
-                    reply = htmlx.unescape(self._cb.ask(clean_msg))
-                self.say(reply)                                         # Use AI for replying                
-                
+            m = self._regexes['msg-action'].search(msg)            
+            if m:
+                #if m.group(1) == 'tell':
+                #    self._usermsg['tell'].post(nick, m.group(2), m.group(3))
+                #    self.notice(nick, 'Ok, I will convey the message to %s' % m.group(2))                
+                if self.parse_verb(m.group(1), m.group(2), m.group(3)):   # Call a function for additional operation, which can be extended later
+                    pass
+                else:
+                    clean_msg = filter(None, m.groups())
+                    reply = self._intelli.reply(msg, nick)                  # Use AI for replying
+                    if not reply:  
+                        reply = self._cb.ask(clean_msg)
+                    if reply:                                               # If there's some valid reply                  
+                        reply = htmlx.unescape(reply)
+                        self.say(reply)                                         # Use AI for replying   
         # Say if some output was returned
         if r:
             r = r[:255]
             if use_nick:   
                 r = nick + ', ' + r
                              
-            if 'p' in flags:
+            if options and options.private:
                 self.notice(nick, r)
             else:
                 self.say(r)
         elif not silence:
-            if 'p' in flags:
+            if options and options.private:
                 self.notice(nick, "No results for you")
             else:
                 self.say("No results for you %s." % nick)                              
             
+    def parse_verb(self, verb, nick, text):
+        '''
+            @var verb: The action text
+            @var nick: The nick part
+            @var text: The text message
+            @summary: Parses verbs to present action for the bot 
+        '''                
+        if verb in ['dodge', 'give', 'steal', 'take', 'catch', 'arm', 'engage', 'assault', 'launch', 'slit', 'poke', 'strip', 'disarm', 'fire', 'attack', 'chase', 'create', 'make', 'relieve', 'show', 'escort', 'push', 'pull', 'throw', 'feed', 'fuck', 'sell', 'buy', 'oblige', 'demolish', 'destroy']:
+            verb += 'es' if verb.endswith(('s', 'z', 'x', 'sh', 'ch'), -2) else 's'            
+            if nick is not None:
+                if text is None:
+                    text = ''
+                self.action('%s %s %s' % (verb, nick, text))
+        elif verb == 'slap':
+            self.action('bitchslaps %s' % (nick))
+        else:
+            return False
+        return True
         
     # WARNING: Do you know what you are doing?
     def armageddon(self, build=False):  
@@ -1040,6 +1253,10 @@ class QircBot(ActiveBot):
         elif self._armastep == 1:                       # Stage 2, Prepare userhosts
             self._armastep += 1         
             self.userhosts = {}                         # Fresh list of userhosts
+            try:
+                self._usernames.remove(self.params['nick']) # Remove bot's nick from the list
+            except:
+                pass
             self.username_count = len(self._usernames)
             for uchunk in self.chunk(self._usernames, 5):   
                 self.send("USERHOST %s" % ' '.join(uchunk))
@@ -1051,7 +1268,7 @@ class QircBot(ActiveBot):
         else:                                           # Final Stage, kickban everyone except in whitelist
             self._armastep = 0                          # Reset armageddon to Stage 0
             self._arma_resetlist = []
-            regx = re.compile(r'^~*(%s)' % '|'.join(self._arma_whitelist)) 
+            regx = re.compile(r'^[^@]*@(%s)' % '|'.join(self._arma_whitelist)) 
             for u,h in self.userhosts.iteritems():                                         
                 if  regx.match(h) is None:                                        
                     Log.write('armageddon-kickban %s %s' % (u, h))
@@ -1082,10 +1299,24 @@ class QircBot(ActiveBot):
             self.queue_op_add(target=self.arma_recover, args=(False,)) 
             self.op(self.params['chan'], self.params['nick'])  
             
+    def send_multiline(self, method, nick, lines):                
+        for line in lines.split('\n'):
+            method(nick, line)        
+    
+    def append_if_url(self, msg):        
+        '''
+            @var msg: 
+        '''
+        m = self._regexes['url'].search(msg)
+        if m is not None:
+            if len(self._last5urls) == 5:
+                self._last5urls.pop()
+            self._last5urls.appendleft(m.group(0))            
+        
     def chunk(self,l, n):
         '''
             @var l: The list to chunk
             @var n: Number of elements per chunk
             @summary: Splits a list into chunks having n elements each
         '''
-        return [l[i:i+n] for i in range(0, len(l), n)]                
+        return [l[i:i+n] for i in range(0, len(l), n)]

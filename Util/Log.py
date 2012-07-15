@@ -8,8 +8,49 @@ from Queue import Queue
 from Queue import Empty
 import time
 import os
+import traceback
 from threading import Thread
 
+# Patch functions of traceback for single line error reporting
+
+def format_list(extracted_list):
+    """Format a list of traceback entry tuples for printing.
+
+    Given a list of tuples as returned by extract_tb() or
+    extract_stack(), return a list of strings ready for printing.
+    Each string in the resulting list corresponds to the item with the
+    same index in the argument list.  Each string ends in a newline;
+    the strings may contain internal newlines as well, for those items
+    whose source text line is not None.
+    """   
+    l = []
+    for filename, lineno, name, _ in extracted_list:
+        item = '%s, %s:%d -> ' % (filename,name,lineno)        
+        l.append(item)
+    return l    
+
+def format_exception(etype, value, tb, limit = None):
+    """Format a stack trace and the exception information.
+
+    The arguments have the same meaning as the corresponding arguments
+    to print_exception().  The return value is a list of strings, each
+    ending in a newline and some containing internal newlines.  When
+    these lines are concatenated and printed, exactly the same text is
+    printed as does print_exception().
+    """
+    if tb:
+        l = []
+        l = l + traceback.format_tb(tb, limit)
+    else:
+        l = []
+    l = l + traceback.format_exception_only(etype, value)
+    return l
+
+# Assign functions
+traceback.format_list = format_list
+traceback.format_exception = format_exception
+
+# Logging Module
 class Log(object):
     '''
     classdocs
@@ -54,9 +95,13 @@ class Log(object):
                     
             except Exception, e:
                 print '> Log.write %s' %e
-        
+    
+    @classmethod
+    def error(cls, msg=''):          
+        cls.write('%s%s' % (msg, traceback.format_exc(1)), 'E') 
+                        
     @classmethod    
-    def perform_write(cls):        
+    def perform_write(cls):            
         while not cls._stop:                   
             try:            
                 item = cls._queue.get(True, 10)

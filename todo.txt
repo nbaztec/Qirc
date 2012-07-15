@@ -1,0 +1,7 @@
+Add google silent
+Add shortcut to txt
+Fix format of url
+Increase votekick time
+Change identification to masks
+Confirm tell
+advanced help [/msg Qirc help arma, !help wolf]
