@@ -1,9 +1,9 @@
-Qirc
+## Qirc ##
 ====
 
 Qirc is an IRC bot built in Python
 
-It is a simple bot with even simpler UI, currently in development phase.
+It is a simple bot with a simple extensible design and can support many complex tasks.
 
 Supports:
 * Wikipedia
@@ -24,18 +24,23 @@ Supports:
 * Seen
 * Tell command for visitor messages that are delivered when a user arrives
 * Vast set of verbs
-
-
+* Logging
+* Rule enforcement
+  
+  
 And and a much hated 'Armageddon' command.
 * A short arma command for selective kickban
 * armarecover for quick recovery from Armageddon.
-
+The bot can controlled dynamically via `/msg` commands and has persistence for saving its state.
+  
 Help:
 * Use !help to obtain a set of commands
 * Use -h or --help within each command for help and switches (there are aplenty of those)
+  
+  
+## Example ##
+====
 
-
-Eg:
 ```plaintext
 :> !help  
 :> Enter <command> -h for help on the respective command  
