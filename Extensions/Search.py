@@ -12,7 +12,7 @@ from Util import htmlx
 from Util.Log import Log
 
 appid = {
-            'google'    : 'XXXX',
+            'google'    : 'AIzaSyAMajmwMaD4uPv1EuXn_WzC-9T61GZW5gw',
         }
 
 
@@ -127,12 +127,13 @@ def customsearch(query, site, num=1, single=False):
         response.close()
         soup = BeautifulSoup(page)            
         item_1 = soup.findAll('entry')[num-1]
-        url =  ''.join(item_1.find('id').find(text=True))   
-        if single:
-            desc = htmlx.unescape(htmlx.unescape(re.sub(r'&lt;[^&]+&gt;','',item_1.find('title').find(text=True))))
-        else:         
-            desc = htmlx.unescape(htmlx.unescape(re.sub(r'&lt;[^&]+&gt;','',item_1.find('summary').find(text=True))))     
-        return ("%s, %s" % (url, desc)).encode('utf-8')
+        url =  ''.join(item_1.find('id').find(text=True))
+        title = htmlx.unescape(htmlx.unescape(re.sub(r'&lt;[^&]+&gt;','',item_1.find('title').find(text=True))))   
+        if not single:         
+            desc = ", " + htmlx.unescape(htmlx.unescape(re.sub(r'&lt;[^&]+&gt;','',item_1.find('summary').find(text=True))))
+        else:
+            desc = ''
+        return ("%s : %s%s" % (title, url, desc)).encode('utf-8')
     except Exception:
         Log.error()
         return None     

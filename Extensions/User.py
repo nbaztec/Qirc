@@ -19,8 +19,10 @@ class Tell(object):
     '''
     Tell acts as a buffer to hold messages for user and retrieves them at once
     '''
-    def __init__(self):
-        self._buffer = {}
+    def __init__(self, buff=None):
+        if buff is None:
+            buff = {}
+        self._buffer = buff
         
     def post(self, sender, to, text):
         '''
@@ -41,10 +43,16 @@ class Tell(object):
             @return: [(sender,text), (sender,text), ...]
         '''
         return self._buffer.pop(nick, None)
-                     
+    
+    def get_state(self):
+        return {'buffer': self._buffer}
+    
+    def set_state(self, state):
+        self._buffer = state['buffer']
+                                 
 class Remind(object):
     '''
-    Tell acts as a buffer to hold messages for user and retrieves them at once
+        Keeps a reminder for a user and delivers it on time
     '''
     
     class RemindFormatError(SimpleError):
@@ -55,8 +63,10 @@ class Remind(object):
         def __init__(self, msg):
             SimpleError.__init__(self, msg) 
         
-    def __init__(self, print_callback):
-        self._buffer = []        
+    def __init__(self, print_callback, buff=None):
+        if buff is None:
+            buff = []
+        self._buffer = buff
         self._print = print_callback
         self._regex_parse = re.compile(r'^(\d+)(d|h|m|s)$', re.I)
         self.__close = False
@@ -66,6 +76,10 @@ class Remind(object):
         self.__close = True
         
     def parse_time(self, text):
+        '''
+            @var text: The time string received
+            @summary: Parses the text to create a time 
+        '''
         m = self._regex_parse.match(text)
         if m is not None:
             try:
@@ -121,6 +135,12 @@ class Remind(object):
                     self._buffer.remove((k,v))
                 else:
                     break
+        
+    def get_state(self):
+        return {'buffer': self._buffer}
+    
+    def set_state(self, state):
+        self._buffer = state['buffer']
         
 class Seen(object):
     '''

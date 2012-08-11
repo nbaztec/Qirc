@@ -7,13 +7,10 @@ import sqlite3
 
 class SqliteDb(object):
     '''
-        classdocs
+        Wraps a sqlite database for Qirc
     '''
     
     def __init__(self, dbname=None):
-        '''
-        Constructor
-        '''
         if dbname is None:
             dbname = 'qirc.db'
         self._connection = sqlite3.connect(dbname, check_same_thread=False)
@@ -35,3 +32,18 @@ class SqliteDb(object):
     def close(self):
         self._cursor.close()
         self._connection.close()
+        
+    def create(self):        
+        self._cursor.execute("""CREATE TABLE users(
+                id integer PRIMARY KEY NOT NULL,
+                nick text NOT NULL, 
+                ident text NOT NULL, 
+                host text NOT NULL,
+                num_joins integer NOT NULL DEFAULT 1,
+                timestamp datetime NOT NULL DEFAULT CURRENT_TIMESTAMP, 
+                quit_reason, 
+                UNIQUE(nick, ident, host)
+            )""")
+        
+    def clear(self):
+        self.update_query('DELETE FROM users WHERE 1',())

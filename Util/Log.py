@@ -53,7 +53,7 @@ traceback.format_exception = format_exception
 # Logging Module
 class Log(object):
     '''
-    classdocs
+        Enables a LogCat like static logging class for Qirc
     '''
     _filename = 'Qirc.log'
     _timestamps = False

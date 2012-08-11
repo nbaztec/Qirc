@@ -6,23 +6,19 @@ from QircBot.QircBot import QircBot
 from Util.Log import Log
 
 def client(qb):
-    qb.join('#nbaztec')                            # Join a channel automatically
-    qb.notice('nbaztec', "Qirc is now online.")
-    #print 'Up'
-    #time.sleep(10)
-    #qb.disconnect('')
+    #qb.join('#nbaztec', "yada")                            # Join a channel (with passphrase) automatically
+    #qb.join('#nbaztec')                                    # Join a channel automatically
+    #qb.notice('nbaztec', "Qirc is now online.")            # Send a notice to a user
     pass           
 
-if __name__ == '__main__':
-    #Log.purge()
-    #Log.debug = True   
+if __name__ == '__main__':    
     qb = QircBot(client, {
               'host'        : 'irc.freenode.net',
               'port'        : 6667,
               'nick'        : 'Qirc',
               'ident'       : 'QircBot',
               'realname'    : 'QirckyBot',
-              'password'    : 'XXXX',
+              'password'    : 'MacDonald',
               })
     
     qb.start()

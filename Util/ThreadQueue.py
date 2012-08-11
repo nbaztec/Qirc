@@ -43,7 +43,7 @@ class ThreadQueue(object):
             @summary: Calls the target function with the set of arguments
         '''
         (func, args, kwargs) = self._queue.get()
-        print func, args, kwargs
+        #print func, args, kwargs
         try:        
             func(*args, **kwargs)
         finally:

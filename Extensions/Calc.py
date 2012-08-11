@@ -13,7 +13,7 @@ from Util.Log import Log
 import json
 
 appid = {
-            'wolf'      : 'XXXX',
+            'wolf'      : 'RU4KX6-XJY2PPE93Y',
         }
 
 

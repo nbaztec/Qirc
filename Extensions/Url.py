@@ -70,7 +70,7 @@ def visit(url):
         Log.error('URL.visit: ')        
         return None, None, None
  
-def title(url):
+def title(url, only_title=False):
     '''
         @var url: The url to resolve
         @summary: Fetches the title of an url 
@@ -87,9 +87,12 @@ def title(url):
                     response = urllib2.urlopen(url)        
                     page = response.read()                        
                     response.close()
-                    soup = BeautifulSoup(page)             
-                    return 'Title %s : url %s' % (htmlx.unescape(''.join(soup.find('title').findAll(text=True))), url)
-                else:
+                    soup = BeautifulSoup(page)
+                    if only_title:      
+                        return 'Title %s' % htmlx.unescape(''.join(soup.find('title').findAll(text=True)))
+                    else:
+                        return 'Title %s : url %s' % (htmlx.unescape(''.join(soup.find('title').findAll(text=True))), url)
+                else:                    
                     return 'Title not available for content type %s : url %s' % (ctype, url)
             except Exception:
                 Log.error()
