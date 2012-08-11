@@ -376,7 +376,7 @@ class VoteModule(BaseToggleModule):
                     else:
                         self._bot.say('A minimum of 2 votes are required for taking decision.')
                 # Call    
-                self._vote.start(options.interval, 'Bring forth armageddon upon %s?' % args, self.say, vote_result)                
+                self._vote.start(options.interval, 'Bring forth armageddon upon %s?' % args, self._bot.say, vote_result)                
         else:                                       # Regular vote
             args = ' '.join(options.args)
             def vote_result(p, n, q):
