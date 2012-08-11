@@ -812,7 +812,7 @@ class ArmageddonBot(ActiveBot):
                             'mod'   :   {   
                                             'auth'    : 1,                      
                                             'members' : [],
-                                            'powers'  : ['help', 'flags', 'op', 'kick', 'enforce', 'ban', 'armageddon']
+                                            'powers'  : ['help', 'flags', 'op', 'kick', 'enforce', 'ban', 'module', 'users', 'armageddon']
                                         },
                             'mgr'   :   {                
                                             'auth'    : 2,         
