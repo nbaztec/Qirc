@@ -355,31 +355,49 @@ class UserAuthModule(BaseModule):
     def build_parser(self):
         parser = SimpleArgumentParser(prog="users")
         group = parser.add_mutually_exclusive_group()
-        group.add_argument("-a", "--add", dest="add", choices=["admin", "mod", "mgr"], help="Add a user", metavar="GROUP")
-        group.add_argument("-r", "--remove", dest="remove", help="Remove a user from group (specify user or index)", metavar="GROUP")
+        group.add_argument("-a", "--add", dest="add", choices=["admin", "mod", "mgr"], help="Add a user", metavar="GROUP")        
+        group.add_argument("-r", "--remove", dest="remove", help="Remove a user from group (specify user or index)", metavar="GROUP")        
         group.add_argument("-l", "--list", dest="list", action="store_true", help="List the users of a bot")
-        parser.add_argument("hostmasks", nargs="*", help="User's hostmask", metavar="HOSTMASK")
+        parser.add_argument("-p", "--power", dest="power", action="store_true", help="Specify the powers")
+        parser.add_argument("hostmasks", nargs="*", help="User's hostmask or group's powers (-p)", metavar="HOSTMASK|POWER")
         return parser
     
     def output(self, nick, host, auth, powers, options):
-        if options.add:
+        if options.add:            
             if self._bot.user_auth(role=options.add) > self._bot.user_auth(user=host):
-                count = 0
-                for hostmask in options.hostmasks:
-                    if self._bot.user_add(options.add, hostmask):
-                        count += 1
-                self._bot.notice(nick, '%d hostmak(s) added as %s' % (count, options.add))
-            else:
+                if options.power:
+                    count = 0
+                    for power in options.hostmasks:
+                        if self._bot.role_power(options.add, power):
+                            count += 1
+                    self._bot.notice(nick, '%d power(s) added to group %s' % (count, options.add))
+                else:
+                    count = 0
+                    for hostmask in options.hostmasks:
+                        if self._bot.user_add(options.add, hostmask):
+                            count += 1
+                    self._bot.notice(nick, '%d hostmak(s) added as %s' % (count, options.add))
+            else:                
                 self._bot.notice(nick, 'You can only add users to a lower group than yourself')
         elif options.list:
-            self._bot.send_multiline(self._bot.notice, nick, 'Users are:\n' + '\n'.join(['[%s] : %s' % (k, ', '.join(l)) for k, l in self._bot.user_list()]))            
+            if options.power:
+                self._bot.send_multiline(self._bot.notice, nick, 'Powers are:\n' + '\n'.join(['[%s] : %s' % (k, ', '.join(['All'] if l is None else l)) for k, l in self._bot.power_list()]))            
+            else:
+                self._bot.send_multiline(self._bot.notice, nick, 'Users are:\n' + '\n'.join(['[%s] : %s' % (k, ', '.join(l)) for k, l in self._bot.user_list()]))
         elif options.remove:            
             if self._bot.user_auth(role=options.remove) > self._bot.user_auth(user=host):
-                count = 0
-                for hostmask in options.hostmasks:
-                    if self._bot.user_remove(options.remove, hostmask):
-                        count += 1
-                self._bot.notice(nick, '%d hostmak(s) removed from %s' % (count, options.add))
+                if options.power:
+                    count = 0
+                    for power in options.hostmasks:                        
+                        if self._bot.role_power(options.remove, power, remove=True):
+                            count += 1
+                    self._bot.notice(nick, '%d power(s) removed from group %s' % (count, options.remove))
+                else:
+                    count = 0
+                    for hostmask in options.hostmasks:
+                        if self._bot.user_remove(options.remove, hostmask):
+                            count += 1
+                    self._bot.notice(nick, '%d hostmak(s) removed from %s' % (count, options.remove))
             else:
                 self._bot.notice(nick, 'You can only remove users of a lower group than yourself')
                 

@@ -84,6 +84,8 @@ class PrivilegedInterface(EnforcerInterface):
         self.nick = bot.nick
         self.ghost = bot.ghost
         self.identify = bot.identify
+        self.role_power = bot.role_power
+        self.power_list = bot.power_list
         self.user_add = bot.user_add
         self.user_remove = bot.user_remove
         self.user_auth = bot.user_auth

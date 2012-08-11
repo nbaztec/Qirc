@@ -178,6 +178,7 @@ class BaseManager(object):
         '''
         lex = shlex.shlex(args, posix=True)
         lex.escape = ''
+        lex.commenters = ''
         lex.whitespace_split = True
         return list(lex)
 

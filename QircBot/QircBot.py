@@ -1130,7 +1130,7 @@ class ArmageddonBot(ActiveBot):
             @summary: Parses the command from PM to bot
         '''                
         m = self._regexes['cmd'].search(cmd)
-        if m:
+        if m:            
             if self._masters[role]['powers'] is None or m.group(1) in self._masters[role]['powers']:
                 if m.group(1) == 'help':
                     if self._masters[role]['powers'] is None:
@@ -1220,7 +1220,32 @@ Commands:
             if k != "others":
                 d[k] = v['members']
         return d.items()
-        
+    
+    def power_list(self):
+        '''
+            @summary: Returns the list of groups and their powers as a dict
+        '''
+        d = {}
+        for k, v in self._masters.items():
+            if k != "others":
+                d[k] = v['powers']
+        return d.items()
+     
+    def role_power(self, role, power, remove=False):
+        '''
+            @var role: The group of user
+            @var hostname: The power
+            @summary: Adds/Removes the power of a group
+        '''
+        if self._masters.has_key(role):
+            if remove:
+                if power in self._masters[role]['powers']:
+                    self._masters[role]['powers'].remove(power)
+                    return True
+            elif power not in self._masters[role]['powers']:
+                self._masters[role]['powers'].append(power)
+                return True
+               
     def user_add(self, role, hostname):
         '''
             @var role: The group of user
