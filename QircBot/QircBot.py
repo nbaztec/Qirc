@@ -1176,7 +1176,7 @@ class ArmageddonBot(ActiveBot):
             if self._masters[role]['powers'] is None or m.group(1) in self._masters[role]['powers']:
                 if m.group(1) == 'help':
                     if self._masters[role]['powers'] is None:
-                        self.notice(nick, 'Commands are: help, join, quit, flags, enforce, op, say, kick, ban, armageddon')
+                        self.notice(nick, 'Commands are: help, join, quit, flags, enforce, modules, users, op, say, kick, ban, armageddon')
                     else:
                         self.notice(nick, 'Commands are: %s' % ', '.join(self._masters[role]['powers']))
                 else:

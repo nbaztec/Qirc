@@ -31,7 +31,15 @@ Supports:
 And and a much hated 'Armageddon' command.
 * A short arma command for selective kickban
 * armarecover for quick recovery from Armageddon.
+
 The bot can controlled dynamically via `/msg` commands and has persistence for saving its state.
+Supports:
+* `flags` for controlling bot's actions
+* `modules` for dynamically enabling/disabling modules
+* `users` for adding/removing users of bot spanning 3 classes of `admin`, `mogd` and `mgr`.
+* `enforce` for enforcing auto-kick(and ban) rules.
+
+and many other...
   
 Help:
 * Use !help to obtain a set of commands
@@ -72,3 +80,6 @@ Help:
 :>   -c CUSTOM, --custom=CUSTOM  
 :>                         Search on a custom site
 ```
+
+
+*Note:* Search, Define, Location, Calcand URL extensions require you to enter your API keys for respective functions.

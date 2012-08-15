@@ -18,7 +18,7 @@ if __name__ == '__main__':
               'nick'        : 'Qirc',
               'ident'       : 'QircBot',
               'realname'    : 'QirckyBot',
-              'password'    : 'MacDonald',
+              'password'    : 'xxxxxx',
               })
     
     qb.start()
