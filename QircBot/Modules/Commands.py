@@ -190,9 +190,12 @@ class ArmageddonModule(BaseModule):
                 if options.recover:
                     self._bot.arma_recover()
                 elif options.users:
-                    self._bot.arma(options.users, whitelist=self._whitelist)
+                    self._bot.arma(options.users)
                 else:
-                    self._bot.armageddon(build=True, whitelist=self._whitelist)      
+                    self._bot.armageddon(build=True)      
+    
+    def whitelist(self):
+        return self._whitelist
     
     def get_state(self):
         return { 'whitelist': self._whitelist } 
@@ -457,23 +460,24 @@ class SimpleLogModule(BaseModule):
             self._bot.notice(nick, 'The module has been disabled')
             
     def close(self):
-        if self._file:
+        if self._file:            
             self._file.write(self._buffer)
             self._buffer = ""
             self._file.close()
-                    
-    def log(self, msg):        
+            
+    def log(self, msg):  
         if self._logging:
-            now = datetime.utcnow()
-            if now.date() != self._date.date():
+            now = datetime.utcnow()            
+            d = now - self._date
+            if d.days >= 1:
                 self._date = now
-                if self._file:
-                    self._file.close()
+                self.close()
+                Log.write('Opening Log: ' + os.path.join(self._dir, datetime.strftime(self._date, self._format)))
                 self._file = open(os.path.join(self._dir, datetime.strftime(self._date, self._format)), "a")
                         
             self._buffer += datetime.strftime(now, "[%H:%M:%S] ") + msg + '\n'
-            #print self._buffer
-            if len(self._buffer) == 2048:
+            #print msg
+            if len(self._buffer) == 1024:                
                 self._file.write(self._buffer)
                 self._buffer = ""             
     

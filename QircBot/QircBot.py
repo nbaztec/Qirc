@@ -6,7 +6,7 @@ Created on Jun 7, 2012
 
 from Modules.Manager import ModuleManager, CommandManager
 from Modules.Commands import JoinModule, QuitModule, KickModule, BanModule, OpModule, SayModule, ArmageddonModule, FlagModule, EnforceModule, UserAuthModule, ModManagerModule
-from Modules.Internal import SearchModule, CalculationModule, DefinitionModule, WeatherModule, LocationModule, UrlModule, UserModule, VoteModule, RollModule, GameModule, VerbModule, CleverModule
+from Modules.Internal import SearchModule, CalculationModule, DefinitionModule, QuoteModule, WeatherModule, LocationModule, UrlModule, UserModule, VoteModule, RollModule, GameModule, VerbModule, CleverModule
 from Interfaces.BotInterface import VerbalInterface, EnforcerInterface, CompleteInterface
         
 from QircDatabase import SqliteDb
@@ -48,7 +48,8 @@ class BaseBot(object):
               'nick'        : 'QircBot',
               'ident'       : 'QircBot',
               'realname'    : 'QirckyBot',
-              'password'    : 'None'                 
+              'password'    : 'None',
+              'chan'        : []           
               }
         if params is not None:            
             self.params.update(params)            
@@ -171,7 +172,7 @@ class BaseBot(object):
             Log.error('QircBot.read: ') 
                 
         self.cleanup()                              # Perform clean up
-        self.on_terminate()                
+        self.on_bot_terminate()                
                   
     def done_read(self, seconds):        
         '''
@@ -194,7 +195,7 @@ class BaseBot(object):
         self.on_connected()
         
     
-    def on_terminate(self):
+    def on_bot_terminate(self):
         '''
             @summary: Called when the bot terminates
         '''
@@ -241,6 +242,16 @@ class ActiveBot(BaseBot):
         self._logger = LogModule()
         self._logger.enabled(True)
     
+    @property
+    def current_channel(self):
+        '''
+            @summary: Returns the current channel or an empty string 
+        '''
+        if len(self.params['chan']):
+            return self.params['chan'][0]
+        else:
+            return ''
+        
     def reset_flags(self, bubble=True):
         '''
             @var bubble: Whether to reset the flags in the base class
@@ -297,7 +308,7 @@ class ActiveBot(BaseBot):
         if self._op_actions.Length:        
             self._op_actions.process()          # Process
             self._op_actions.join()             # Block until complete
-            self.deop(self.params['chan'], self.params['nick'])
+            self.deop(self.current_channel, self.params['nick'])
             self._flags['o'] = False                            # Precautionary measure
         self._lock.release()
             
@@ -313,8 +324,7 @@ class ActiveBot(BaseBot):
         '''
             @var chan: The channel to join. Example #chan
             @summary: Sends a JOIN command to join the channel and updates the current channel
-        '''
-        self.params.update({'chan': chan})                
+        '''                
         self.send("JOIN "+chan+" "+key)
         
     def identify(self):
@@ -350,7 +360,7 @@ class ActiveBot(BaseBot):
             @var msg: Message to say
             @summary: Say something in the current channel
         '''   
-        self.send('PRIVMSG %s :%s' % (self.params['chan'], msg))
+        self.send('PRIVMSG %s :%s' % (self.current_channel, msg))
         
     def msg(self, nick, msg):
         '''
@@ -389,10 +399,10 @@ class ActiveBot(BaseBot):
             @attention: Requires OP mode
         '''
         if self._flags['o']:
-            self.send('KICK %s %s %s' % (self.params['chan'], nick, ' :'+msg if msg else ''))
+            self.send('KICK %s %s %s' % (self.current_channel, nick, ' :'+msg if msg else ''))
         elif auto_op:
             self.queue_op_add(target=self.kick, args=(nick, msg, False,))
-            self.op(self.params['chan'], self.params['nick'])
+            self.op(self.current_channel, self.params['nick'])
     
     def ban(self, host, auto_op=True):
         '''
@@ -402,10 +412,10 @@ class ActiveBot(BaseBot):
             @attention: Requires OP mode
         '''
         if self._flags['o']:
-            self.send('MODE %s +b %s' % (self.params['chan'], host,))
+            self.send('MODE %s +b %s' % (self.current_channel, host,))
         elif auto_op:
             self.queue_op_add(target=self.ban, args=(host, False,))    
-            self.op(self.params['chan'], self.params['nick'])
+            self.op(self.current_channel, self.params['nick'])
         
     
     def unban(self, host, auto_op=True):    
@@ -416,23 +426,23 @@ class ActiveBot(BaseBot):
             @attention: Requires OP mode
         ''' 
         if self._flags['o']:
-            self.send('MODE %s -b %s' % (self.params['chan'], host))
+            self.send('MODE %s -b %s' % (self.current_channel, host))
         elif auto_op:
             self.queue_op_add(target=self.unban, args=(host, False,))    
-            self.op(self.params['chan'], self.params['nick'])
+            self.op(self.current_channel, self.params['nick'])
     
     def names(self): 
         '''
             @summary: Send a NAME command to get the list of usernames in the current channel
         '''       
-        self.send('NAMES %s' % self.params['chan'])        
+        self.send('NAMES %s' % self.current_channel)        
     
     def action(self, msg):
         '''
             @var msg: Message to display
             @summary: Send an ACTION message
         '''
-        self.send("PRIVMSG %s :\x01ACTION %s\x01" % (self.params['chan'], msg))
+        self.send("PRIVMSG %s :\x01ACTION %s\x01" % (self.current_channel, msg))
     
     def op(self, chan, nick):
         '''
@@ -682,6 +692,9 @@ class ActiveBot(BaseBot):
             @var user: The user that parted
             @var channel: The channel that was parted from
         '''
+        m = self._regexes['name'].match(user)    
+        if m.group(1) == self.params['nick']:
+            self.on_bot_part(channel)
         self._logger.parted(user, channel, reason)
         return True
     
@@ -691,6 +704,9 @@ class ActiveBot(BaseBot):
             @var channel: The channel that was joined to
         '''
         self._logger.joined(user, channel)
+        m = self._regexes['name'].match(user)            
+        if m.group(1) == self.params['nick']:
+            self.on_bot_join(channel)        
         return True
     
     def recv_kick(self, source, channel, user, reason):
@@ -702,7 +718,7 @@ class ActiveBot(BaseBot):
         '''
         self._logger.kicked(source, user, channel, reason)
         if user == self.params['nick']:                         # If bot is kicked
-            self.join(self.params['chan'])  
+            self.join(channel)  
         return True
     
     def recv_notice(self, source, msg):
@@ -724,7 +740,7 @@ class ActiveBot(BaseBot):
         m = self._regexes['name'].search(user);              # Update nick when changed
         if m.group(1) == self.params['nick']:
             self.params['nick'] = new_nick.strip(':@+')
-            self.on_nick_change()
+            self.on_bot_nick_change(self.params['nick'])
         return True
     
     def recv_mode(self, source, channel, flags, users):
@@ -748,9 +764,9 @@ class ActiveBot(BaseBot):
                 self._flags[c] = (mode == '+')
                 
             if mode == '+':
-                self.on_mode_set()
+                self.on_bot_mode_set()
             else:
-                self.on_mode_reset()
+                self.on_bot_mode_reset()
         return True
     
     def recv_privmsg(self, user, channel, msg):
@@ -758,26 +774,43 @@ class ActiveBot(BaseBot):
             @var source: The user sending the PRIVMSG
             @var source: The message received
         '''
-        if channel == self.params['chan']:
+        if channel == self.current_channel:
             self._logger.msg(user, None, msg.lstrip(':'))
         else:
             self._logger.msg(user, channel, msg.lstrip(':'))
         return True
     
-    def on_mode_set(self):
+    def on_bot_join(self, channel):
+        '''
+            @var channel: The channel name
+            @summary: Called when the bot joins a channel
+        '''          
+        if channel not in self.params['chan']: 
+            self.params['chan'].insert(0, channel)     # Reset  channel from state, if parted
+    
+    def on_bot_part(self, channel):
+        '''
+            @var channel: The channel name
+            @summary: Called when the bot parts the channel
+        '''        
+        if channel in self.params['chan']: 
+            self.params['chan'].remove(channel)     # Reset  channel from state, if parted
+    
+    def on_bot_mode_set(self):
         '''
             @summary: Called when a mode is set on the bot
         '''
         pass
     
-    def on_mode_reset(self):
+    def on_bot_mode_reset(self):
         '''
             @summary: Called when a mode is reset on the bot
         '''
         pass
 
-    def on_nick_change(self):
+    def on_bot_nick_change(self, nick):
         '''
+            @var nick: The new nick
             @summary: Called when the nick is changed on bot
         '''
         pass
@@ -846,6 +879,7 @@ class ArmageddonBot(ActiveBot):
         self._modmgr.add('search', SearchModule(verbal_interface), ['s', 'g'])
         self._modmgr.add('calc', CalculationModule(verbal_interface), ['c'])
         self._modmgr.add('define', DefinitionModule(verbal_interface), ['d'])
+        self._modmgr.add('quote', QuoteModule(verbal_interface))
         self._modmgr.add('weather', WeatherModule(verbal_interface), ['w'])
         self._modmgr.add('locate', LocationModule(verbal_interface), ['l'])
         self._modmgr.add('url', UrlModule(verbal_interface))
@@ -947,17 +981,25 @@ class ArmageddonBot(ActiveBot):
         '''
             @var line: The text received broken into tokens
             @summary: JOIN was received            
-        '''
-        m = self._regexes['name'].match(line[0])                # Get name of the joining user
-        user = m.group(1)
-        if user == self.params['nick']:
-            self.say('All systems go!')                    
-        else:
+        '''        
+        #user = m.group(1)
+        #if user == self.params['nick']:
+        #    self.say('All systems go!')
+        m = self._regexes['name'].match(line[0])                # Get name of the joining user                    
+        if m.group(1) != self.params['nick']:                   # If user is not our bot
             self._cmdmgr.module('enforce').enforce(line[0].lstrip(':@+'))
             self._modmgr.module('user').seen_join(m.group(1),m.group(2),m.group(3))
             #self.say('Hey ' + user)                            # Greet user
         return super(ArmageddonBot, self).cmd_join(line)
     
+    def on_bot_join(self, channel):
+        '''
+            @var channel: The channel name
+            @summary: Called when the bot joins a channel
+        ''' 
+        super(ArmageddonBot, self).on_bot_join(channel)
+        self.say('All systems go!')
+        
     def cmd_nick(self, line):
         '''
             @var line: The text received broken into tokens
@@ -1021,7 +1063,7 @@ class ArmageddonBot(ActiveBot):
             @summary: USERHOST is received
             @notice: Used to implement armageddon
         '''
-        if self._armastep == 2:                                        
+        if self._armastep == 2:  
             for uh in line[3:]:                     # Build userhosts
                 m = self._regexes['userhost'].search(uh)
                 if m:
@@ -1065,7 +1107,7 @@ class ArmageddonBot(ActiveBot):
     
     #Overriden events
     
-    def on_terminate(self):
+    def on_bot_terminate(self):
         '''
             @summary: Called when the bot terminates
         '''
@@ -1082,7 +1124,7 @@ class ArmageddonBot(ActiveBot):
     #def on_connected(self):
     #    self.load_state()
                             
-    def on_mode_set(self):        
+    def on_bot_mode_set(self):        
         '''
             @summary: Called when a mode is set on the bot.
             @note: Used to trigger commands in queue requiring OP
@@ -1283,18 +1325,19 @@ Commands:
         elif role:
             if self._masters.has_key(role):
                 return self._masters[role]['auth']        
-            
+                    
     # WARNING: Do you know what you are doing?
-    def armageddon(self, build=False, whitelist=None):  
+    def arma_whitelist(self):
+        return self._cmdmgr.module('armageddon').whitelist()
+    
+    def armageddon(self, build=False):  
         '''
             @var build: True if called for first time, from stage 0. False otherwise.
             @summary: Does what it says. Armageddon.
                       Kickbans all users except the ones in whitelist
-        '''              
-        if whitelist:   # Set whitelist if available
-            self._arma_whitelist = whitelist
-                
-        if build and self._armastep == 0:               # Stage 1, Prepare usernames
+        ''' 
+                                                
+        if build and self._armastep == 0:               # Stage 1, Prepare usernames            
             self._armastep += 1                    
             self._usernames = []            
             self.names()
@@ -1310,11 +1353,11 @@ Commands:
                 self.send("USERHOST %s" % ' '.join(uchunk))
         elif self._armastep == 2:                       # Stage 3, Get +o mode {optional}
             self._armastep += 1            
-            self.op(self.params['chan'], self.params['nick'])  
+            self.op(self.current_channel, self.params['nick'])  
         else:                                           # Final Stage, kickban everyone except in whitelist
             self._armastep = 0                          # Reset armageddon to Stage 0
             self._arma_resetlist = []
-            regx = re.compile(r'^[^@]*@(%s)' % '|'.join(self._arma_whitelist))
+            regx = re.compile(r'^[^@]*@(%s)' % '|'.join(self.arma_whitelist())) # Set whitelist
             self._arma_whitelist = [] 
             for u,h in self.userhosts.iteritems():                                         
                 if  regx.match(h) is None:                                        
@@ -1325,14 +1368,14 @@ Commands:
                 else:
                     Log.write('Saved %s %s' % (u, h))
     
-    def arma(self, usernames, whitelist=None):
+    def arma(self, usernames):
         '''
             @var usernames: The list of users to bring forth armageddon upon
             @summary: A toned down version of armageddon kickbanning only selected users 
         '''
         self._armastep = 1        
         self._usernames = usernames 
-        self.armageddon(whitelist=whitelist)    
+        self.armageddon()    
     
     def arma_recover(self, auto_op=True):
         '''
@@ -1344,7 +1387,7 @@ Commands:
                 self.unban(u, False)
         elif auto_op:
             self.queue_op_add(target=self.arma_recover, args=(False,)) 
-            self.op(self.params['chan'], self.params['nick'])  
+            self.op(self.current_channel, self.params['nick'])  
                     
     def chunk(self,l, n):
         '''

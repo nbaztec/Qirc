@@ -23,7 +23,7 @@ class BaseInterface(object):
     
     @property
     def channel(self):
-        return self.params['chan']    
+        return self.current_channel
 
 class VerbalInterface(BaseInterface):
     '''

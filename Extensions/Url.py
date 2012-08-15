@@ -14,7 +14,7 @@ from Util.BeautifulSoup import BeautifulSoup
 from Util import htmlx
 
 appid = {
-            'google'    : 'AIzaSyAMajmwMaD4uPv1EuXn_WzC-9T61GZW5gw',
+            'google'    : '####',
         }
 
 url_regex = re.compile(r'^https?://([^/]+)(.*)$')

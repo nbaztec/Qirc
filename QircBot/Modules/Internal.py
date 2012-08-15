@@ -101,9 +101,9 @@ class DefinitionModule(BaseToggleModule):
         group = parser.add_mutually_exclusive_group()
         group.add_argument("-u", "--urban", action="store_true", dest="urban", default=True, help="Define using urbandictionary [Default]")
         group.add_argument("-g", "--google", action="store_true", dest="google", default=False, help="Define using google")
-        group.add_argument("-d", "--dictionary", action="store_true", dest="dictionary", default=False, help="Define using dictionary.com")
-        group.add_argument("-a", "--antonym", action="store_true", dest="antonym", default=False, help="Get antonym of word")
-        group.add_argument("-e", "--etymology", action="store_true", dest="etymology", default=False, help="Get origin of word")
+        group.add_argument("-d", "--dictionary", action="store_true", dest="dictionary", default=False, help="Define using abbreviations.com")
+        group.add_argument("-s", "--synonym", action="store_true", dest="synonym", default=False, help="Get synonyms of a word")
+        #group.add_argument("-e", "--etymology", action="store_true", dest="etymology", default=False, help="Get origin of word")
         parser.add_argument("args", nargs="+", help="Query term", metavar="term")
         return parser
         
@@ -112,11 +112,13 @@ class DefinitionModule(BaseToggleModule):
         if options.google:
             r = Define.googledefine(args, options.result)
         elif options.dictionary:
-            pass                                        # TODO: Alternative source of dictionary
-        elif options.antonym:
-            pass                                        # TODO: Antonym
-        elif options.etymology:
-            pass                                        # TODO: Etymology
+            r = Define.dictionary(args, options.result)
+        elif options.synonym:
+            r = Define.synonyms(args, options.result)
+        #elif options.antonym:
+        #    pass                                        # TODO: Antonym
+        #elif options.etymology:
+        #    pass                                        # TODO: Etymology
         elif options.urban:
             r = Define.urbandefine(args, options.result)
         if r:            
@@ -124,6 +126,35 @@ class DefinitionModule(BaseToggleModule):
                 self._bot.notice(nick, r.replace('\r', ' '))
             else:
                 return ModuleResult('%s, %s' % (r.replace('\r', ' '), nick))
+            
+class QuoteModule(BaseToggleModule):
+    '''
+        Module for performing word operations
+    '''
+    
+    def build_parser(self):
+        parser = SimpleArgumentParser(prog="!quote")
+        parser.add_argument("-p", "--private", action="store_true", dest="private", default=False, help="Get results in private")
+        parser.add_argument("-t", "--result", type=int, dest="result", default=1, help="Get the N'th result", metavar="N")
+        group = parser.add_mutually_exclusive_group()
+        group.add_argument("-r", "--random", action="store_true", dest="random", default=True, help="Get a random quote[Default]")
+        group.add_argument("-a", "--author", dest="author", nargs="+", default=None, help="Search a quote by the author", metavar="AUTHOR")
+        group.add_argument("-s", "--search", dest="search", nargs="+", default=None, help="Search a quote by contents", metavar="TERM")        
+        return parser
+        
+    def output(self, nick, host, auth, powers, options):
+        r = None                                          
+        if options.author:
+            r = Define.quote(' '.join(options.author), author=True, num=options.result)
+        elif options.search:
+            r = Define.quote(' '.join(options.search), search=True, num=options.result)
+        elif options.random:
+            r = Define.quote('random', num=options.result)        
+        if r:            
+            if options.private:
+                self._bot.notice(nick, r.replace('\r', ' '))
+            else:
+                return ModuleResult('%s' % r.replace('\r', ' '))
         
 class WeatherModule(BaseToggleModule):
     '''
@@ -267,18 +298,31 @@ class UserModule(BaseToggleModule):
         parser = SimpleArgumentParser(prog="!user")
         parser.add_argument("-p", "--private", action="store_true", dest="private", default=False, help="Get results in private")
         group = parser.add_mutually_exclusive_group()
-        group.add_argument("-s", "--seen", action="store_true", dest="seen", default=True, help="Check when a user was last seen")
-        group.add_argument("-t", "--tell", dest="tell", help="Leave a message for the user", metavar="MESSAGE")
+        group.add_argument("-c", "--clear", action="store_true", dest="clear", help="Clear messages for 'remind' or 'tell') [Admin]")
+        group.add_argument("-s", "--seen", dest="seen", action="store_true", default=True, help="Check when a user was last seen [Default]")
+        group.add_argument("-t", "--tell", dest="tell", help="Leave a message for the user", metavar="USER")
         group.add_argument("-r", "--remind", dest="remind", help="Set a reminder for self", metavar="XX(d,h,m,s)")
-        parser.add_argument("args", nargs="+", help="User's nick", metavar="nick")
+        parser.add_argument("args", nargs="+", help="Message", metavar="MESSAGE")
         return parser
         
-    def output(self, nick, host, auth, powers, options):              
-        if options.tell:            
-            for usr in options.args:                
-                self._tell.post(nick, usr, options.tell)
-                self._bot.notice(nick, 'Ok, I will convey the message to %s' % usr)            
-        elif options.remind:                     
+    def output(self, nick, host, auth, powers, options):
+        if auth == 0 and options.clear:            
+            if options.args[0] == "tell":
+                self._bot.notice(nick, '%d message(s) were dropped' % self._tell.clear())
+            elif options.args[0] == "remind":
+                self._bot.notice(nick, '%d reminder(s) were dropped' % self._remind.clear())
+            else:
+                self._bot.notice(nick, 'Please specify either "remind" or "tell"')
+        elif options.tell:               
+            if len(options.args):
+                self._tell.post(nick, options.tell, ' '.join(options.args))
+                self._bot.notice(nick, 'Ok, I will convey the message to %s' % options.tell)
+            else:
+                self._bot.notice(nick, 'Atleast specify a message :/')
+            #for usr in options.args:                
+            #    self._tell.post(nick, usr, options.tell)
+            #    self._bot.notice(nick, 'Ok, I will convey the message to %s' % usr)            
+        elif options.remind:   
             try:             
                 arg = ' '.join(options.args)      
                 self._remind.remind(nick, options.remind, arg)
@@ -364,7 +408,7 @@ class VoteModule(BaseToggleModule):
             if auth < 3:                                
                 # Define calback
                 def vote_result(p, n, q):
-                    if (p+n) > 1:
+                    if (p+n) > 0:
                         vote = p - n
                         if vote > 0:
                             self._bot.say('The general public (%d) has agreed to bring forth armageddon upon %s' % (p + n, args))                            

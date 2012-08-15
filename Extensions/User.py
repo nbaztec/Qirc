@@ -23,6 +23,11 @@ class Tell(object):
         if buff is None:
             buff = {}
         self._buffer = buff
+    
+    def clear(self):
+        count = len(self._buffer)
+        self._buffer = {}
+        return count
         
     def post(self, sender, to, text):
         '''
@@ -71,6 +76,11 @@ class Remind(object):
         self._regex_parse = re.compile(r'^(\d+)(d|h|m|s)$', re.I)
         self.__close = False
         Thread(target=self.timer, name='reminder_thread').start()
+        
+    def clear(self):
+        count = len(self._buffer)
+        self._buffer = []
+        return count
         
     def dispose(self):
         self.__close = True
