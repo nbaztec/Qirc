@@ -36,7 +36,7 @@ The bot can controlled dynamically via `/msg` commands and has persistence for s
 Supports:
 * `flags` for controlling bot's actions
 * `modules` for dynamically enabling/disabling modules
-* `users` for adding/removing users of bot spanning 3 classes of `admin`, `mogd` and `mgr`.
+* `users` for adding/removing users of bot spanning 3 classes of `admin`, `mod` and `mgr`.
 * `enforce` for enforcing auto-kick(and ban) rules.
 
 and many other...
