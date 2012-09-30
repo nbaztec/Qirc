@@ -1,17 +1,19 @@
 '''
 Created on Jun 7, 2012
 @author: Nisheeth
-@version: 3.0 Deadpool
+@version: 3.0.5 Deadpool
 '''
 
-from Modules.Manager import ModuleManager, CommandManager
-from Modules.Commands import JoinModule, QuitModule, KickModule, BanModule, OpModule, SayModule, ArmageddonModule, FlagModule, EnforceModule, UserAuthModule, ModManagerModule
+from Modules.Manager import ModuleManager, CommandManager, ExternalManager
+from Modules.Commands import JoinModule, PartModule, QuitModule, KickModule, BanModule, OpModule, SayModule, ArmageddonModule, FlagModule, EnforceModule, UserAuthModule, ModManagerModule
 from Modules.Internal import SearchModule, CalculationModule, DefinitionModule, QuoteModule, WeatherModule, LocationModule, UrlModule, UserModule, VoteModule, RollModule, GameModule, VerbModule, CleverModule
+from Modules import External
 from Interfaces.BotInterface import VerbalInterface, EnforcerInterface, CompleteInterface
         
 from QircDatabase import SqliteDb
 from Util.Log import Log
 from Util.ThreadQueue import ThreadQueue
+from Util import Chronograph
 from abc import ABCMeta, abstractmethod
 from threading import Thread, Lock
 from os import path
@@ -20,6 +22,7 @@ import re
 import socket
 import time
 import cPickle
+import inspect
 
 class BaseBot(object):
     '''
@@ -63,7 +66,7 @@ class BaseBot(object):
         self._sock = socket.socket();
         self._success_callback = callback     
         self._lock = Lock()                     # mutex _lock [unused]                
-        self.orig_nick = self.params['nick']    # Store original nick for temp logins
+        self.orig_nick = self.params['nick']    # Store original nick for temp logins        
         
         BaseBot.reset_flags(self)
         
@@ -135,7 +138,21 @@ class BaseBot(object):
             @var msg: Message to send
             @summary: Send raw message to IRC
         '''
-        try:            
+        try:
+            '''
+            now = time.time()
+            if now - self._last_send < 2:
+                self._last_send_count += 1
+            else:
+                self._last_send_count = 0
+            self._last_send = now
+            
+            if self._last_send_count > 2:
+                self._last_send_count = 0
+                print '-----------------------SLEEP--------------------'
+                time.sleep(1)
+            '''            
+                        
             msg = msg[:510]     # Max limit is 512 (2 for CRLF)
             Log.write('Sending ' + msg)
             self._sock.send(msg + "\r\n")
@@ -237,7 +254,9 @@ class ActiveBot(BaseBot):
         #BaseBot.__init__(self, callback, params)
         super(ActiveBot, self).__init__(callback, params)
         ActiveBot.reset_flags(self, False)                 # Initialize flags but do not bubble up, since already set by BaseBot.__init__()
-        self._op_actions = ThreadQueue()        # ThreadQueue for OP functions
+        self._op_actions = ThreadQueue()                   # ThreadQueue for OP functions
+        self._multisend_lock = Lock()                      # Thread lock for avoiding floodkicks on send_multiline()
+        
         from Modules.Commands import LogModule
         self._logger = LogModule()
         self._logger.enabled(True)
@@ -325,7 +344,14 @@ class ActiveBot(BaseBot):
             @var chan: The channel to join. Example #chan
             @summary: Sends a JOIN command to join the channel and updates the current channel
         '''                
-        self.send("JOIN "+chan+" "+key)
+        self.send('JOIN %s %s' % (chan, key))
+        
+    def part(self, chan, msg=''):
+        '''
+            @var msg: PART message
+            @summary: Parts the bot from a channel
+        '''
+        self.send("PART %s :%s" % (chan, msg))        
         
     def identify(self):
         '''
@@ -377,7 +403,7 @@ class ActiveBot(BaseBot):
             @summary: Whisper something to a channel or user
         '''   
         self.send('NOTICE %s :%s' % (nick, msg))
-        
+            
     def send_multiline(self, method, nick, lines):
         '''
             @var method: The method to use to send the message
@@ -385,10 +411,18 @@ class ActiveBot(BaseBot):
             @var lines: A multiline message string
         '''             
         for line in lines.split('\n'):
+            self._multisend_lock.acquire()
             if nick:
                 method(nick, line)
             else:
-                method(line)        
+                method(line)      
+            
+            try:              
+                time.sleep(0.5)
+            except:
+                pass
+            
+            self._multisend_lock.release()
             
     def kick(self, nick, msg, auto_op=True):        
         '''
@@ -398,11 +432,12 @@ class ActiveBot(BaseBot):
             @summary: Kicks a user from the channel
             @attention: Requires OP mode
         '''
-        if self._flags['o']:
-            self.send('KICK %s %s %s' % (self.current_channel, nick, ' :'+msg if msg else ''))
-        elif auto_op:
-            self.queue_op_add(target=self.kick, args=(nick, msg, False,))
-            self.op(self.current_channel, self.params['nick'])
+        if nick != self.params['nick']:     # Avoid kicking self
+            if self._flags['o']:
+                self.send('KICK %s %s %s' % (self.current_channel, nick, ' :'+msg if msg else ''))
+            elif auto_op:
+                self.queue_op_add(target=self.kick, args=(nick, msg, False,))
+                self.op(self.current_channel, self.params['nick'])
     
     def ban(self, host, auto_op=True):
         '''
@@ -540,7 +575,7 @@ class ActiveBot(BaseBot):
     def cmd_part(self, line):
         '''
             @var line: The text received broken into tokens
-            @summary: PAR was received            
+            @summary: PART was received            
         '''
         return self.recv_part(line[0], line[2], ' '.join(line[3:]).lstrip(':'))
     
@@ -593,7 +628,7 @@ class ActiveBot(BaseBot):
             @summary: The nick is already in use            
         '''                
         if not self._joined:
-            self.params['nick'] += str(random.randrange(1,65535)) 
+            self.params['nick'] = self.orig_nick + str(random.randrange(1,65535)) 
             Log.write('Retrying with nick %s' % self.params['nick'])
             self._ghost = self.params['password'] is not None   # Ghost other user/bot if password is specified
             Log.write("GHOST %s" % self._ghost)
@@ -871,6 +906,7 @@ class ArmageddonBot(ActiveBot):
         # Module Managers
         self._modmgr = ModuleManager()   
         self._cmdmgr = CommandManager()
+        self._extmgr = ExternalManager()
         
         # Load state
         self.load_state()
@@ -892,6 +928,7 @@ class ArmageddonBot(ActiveBot):
         self._modmgr.disable_module('game')
      
         self._cmdmgr.add('join', JoinModule(complete_interface))
+        self._cmdmgr.add('part', PartModule(complete_interface))
         self._cmdmgr.add('quit', QuitModule(complete_interface))
         self._cmdmgr.add('kick', KickModule(complete_interface))
         self._cmdmgr.add('ban', BanModule(complete_interface))
@@ -917,6 +954,8 @@ class ArmageddonBot(ActiveBot):
         self._regexes['module-reply'] = re.compile(r'^%s[\s,:]+(.+)$' % self.params['nick'])
         self.regex_prepare_users()
         
+        self.load_external_modules()
+        
     def regex_prepare_users(self):
         '''
             @summary: Prepare a list of master and compiles the regex
@@ -927,6 +966,14 @@ class ArmageddonBot(ActiveBot):
                 self._special_users.append('(?P<%s>%s)' % (k, '|'.join(v['members'])))
         self._special_users.append('(?P<%s>%s)' % ('others', '|'.join(self._masters['others']['members'])))
         self._regexes['special'] = re.compile(r'^:([^!]+)!~*[^@]+@(%s)$' % '|'.join(self._special_users))         # Regex for matching hostmask of users
+        
+    
+    def load_external_modules(self):
+        for name, obj in inspect.getmembers(External):
+            if inspect.isclass(obj) and obj.__bases__[0].__name__ == "BaseExternalModule":
+                print 'Importing', name, ' -> ', obj
+                itype = obj.get_interface_type()
+                self._extmgr.add(obj(itype(self)))                
         
     def get_status_flag(self, key=None):
         '''
@@ -1012,37 +1059,45 @@ class ArmageddonBot(ActiveBot):
         else:
             return False   
     
-    def cmd_kick(self, line):
+    
+    def recv_kick(self, source, channel, user, reason):
         '''
-            @var line: The text received broken into tokens
-            @summary: KICK was received            
+            @var source: The user who issued the KICK
+            @var channel: The channel on which KICK was issued
+            @var user: The user who got kicked
+            @var reason: The reason for kicking 
         '''
-        if super(ArmageddonBot, self).cmd_kick(line):
-            self._modmgr.module('user').seen_part(line[3],' '.join(line[4:]).lstrip(':'))
+        if super(ArmageddonBot, self).recv_kick(source, channel, user, reason):
+            self._modmgr.module('user').seen_part(user, reason)      
             return True
         else:
             return False
     
-    def cmd_quit(self, line):
+    def recv_quit(self, user, reason):
         '''
-            @var line: The text received broken into tokens
-            @summary: QUIT was received            
+            @var user: The user that parted
+            @var reason: The reason for quit
         '''
-        if super(ArmageddonBot, self).cmd_quit(line):
-            m = self._regexes['name'].match(line[0])
-            self._modmgr.module('user').seen_part(m.group(1),' '.join(line[3]).lstrip(':'))
-            return True        
+        if super(ArmageddonBot, self).recv_quit(user, reason):
+            m = self._regexes['name'].match(user)
+            self._modmgr.module('user').seen_part(m.group(1), reason)                                
+            return True
+        else:
+            return False
+        
+    
+    def recv_part(self, user, channel, reason):
+        '''
+            @var user: The user that parted
+            @var channel: The channel that was parted from
+        '''
+        if super(ArmageddonBot, self).recv_part(user, channel, reason):
+            m = self._regexes['name'].match(user)
+            self._modmgr.module('user').seen_part(m.group(1),'PART')
+            return True
         else:
             return False
     
-    def cmd_part(self, line):
-        '''
-            @var line: The text received broken into tokens
-            @summary: PAR was received            
-        '''
-        m = self._regexes['name'].match(line[0])
-        self._modmgr.module('user').seen_part(m.group(1),'PART')
-        return super(ArmageddonBot, self).cmd_part(line)
        
     # Overriden stat methods 
     
@@ -1156,8 +1211,8 @@ class ArmageddonBot(ActiveBot):
             try:
                 self._masters = pickler.load()
                 self._arma_resetlist = pickler.load()                                
-                self._modmgr.set_state(pickler.load())
-                self._cmdmgr.set_state(pickler.load())
+                self._modmgr.set_state(pickler.load())      # Mangers will handle pickle errors themselves
+                self._cmdmgr.set_state(pickler.load())      # Mangers will handle pickle errors themselves
                 self._logger.set_state(pickler.load())
             except:
                 Log.error('Bad pickle state: ')
@@ -1176,7 +1231,7 @@ class ArmageddonBot(ActiveBot):
             if self._masters[role]['powers'] is None or m.group(1) in self._masters[role]['powers']:
                 if m.group(1) == 'help':
                     if self._masters[role]['powers'] is None:
-                        self.notice(nick, 'Commands are: help, join, quit, flags, enforce, modules, users, op, say, kick, ban, armageddon')
+                        self.notice(nick, 'Commands are: help, join, part, quit, flags, enforce, module, users, op, say, kick, ban, armageddon')
                     else:
                         self.notice(nick, 'Commands are: %s' % ', '.join(self._masters[role]['powers']))
                 else:
@@ -1208,8 +1263,8 @@ class ArmageddonBot(ActiveBot):
         # Tell Messages
         messages = self._modmgr.module('user').tell_get(nick)
         if messages:
-            for sender, msg in messages:
-                self.say('%s, %s said "%s"' % (nick, sender, msg))
+            for sender, msg, timestamp in messages:
+                self.say('%s, %s said (%s ago) "%s"' % (nick, sender, Chronograph.time_ago(timestamp), msg))
                 
         # Voting
         if self._modmgr.module('vote').is_voting:
@@ -1223,7 +1278,7 @@ class ArmageddonBot(ActiveBot):
         elif self._modmgr.module('game').is_playing:
             self._modmgr.module('game').response(nick, msg)            
             return True
-               
+                
         m = self._regexes['module-cmd'].search(msg)        
         if m:    
             if m.group(1) == 'help':                
@@ -1232,7 +1287,8 @@ Commands:
     !help             Shows this help
     !search, !s, !g   Search for a term on various sites
     !calc, !c         Perform some calculation
-    !define, !d       Get the meaning, antonyms, etc, for a term
+    !define, !d       Get the meaning, antonyms, etc. for a term
+    !quote            Get a quote
     !weather, !w      Get weather and forecasts for a location
     !locate, !l       Locate a user, IP or coordinate
     !url              Perform operation on an url, 
@@ -1242,7 +1298,9 @@ Commands:
     !roll             Roll a dice
     !game             Begin a game""")
             else:
-                (_, result, success) = self._modmgr.parse(nick, host, self._masters[role]['auth'], self._masters[role]['powers'], m.group(1), m.group(2) if m.group(2) else '')
+                (key, result, success) = self._modmgr.parse(nick, host, self._masters[role]['auth'], self._masters[role]['powers'], m.group(1), m.group(2) if m.group(2) else '')
+                if key is None:     # Check in external modules
+                    (_, result, success) = self._extmgr.parse(nick, host, self._masters[role]['auth'], self._masters[role]['powers'], m.group(1), m.group(2) if m.group(2) else '')
                 if not success:
                     if result:
                         self.send_multiline(self.notice, nick, result.output)                                                    
@@ -1272,7 +1330,17 @@ Commands:
             if k != "others":
                 d[k] = v['powers']
         return d.items()
-     
+    
+    def role_list(self):
+        '''
+            @summary: Returns the list of groups and their auths as a dict
+        '''
+        d = {}
+        for k, v in self._masters.items():
+            if k != "others":
+                d[k] = v['auth']
+        return d.items()
+            
     def role_power(self, role, power, remove=False):
         '''
             @var role: The group of user
@@ -1287,7 +1355,26 @@ Commands:
             elif power not in self._masters[role]['powers']:
                 self._masters[role]['powers'].append(power)
                 return True
-               
+     
+    def role_add(self, role, auth):
+        '''
+            @var role: The group name
+            @var auth: The authorization level of group
+            @summary: Adds the group to the list of masters
+        '''
+        if not self._masters.has_key(role):            
+            self._masters[role] = { 'members': [], 'auth': auth, 'powers': []}
+            return True
+    
+    def role_remove(self, role):
+        '''
+            @var role: The group name
+            @summary: Removes the group from the list of masters
+        '''
+        if self._masters.has_key(role):
+            self._masters.pop(role)            
+            return True
+                      
     def user_add(self, role, hostname):
         '''
             @var role: The group of user

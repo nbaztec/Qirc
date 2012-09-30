@@ -26,6 +26,20 @@ class JoinModule(BaseModule):
     def output(self, nick, host, auth, powers, options):
         self._bot.join(options.chan, options.key)        
         
+class PartModule(BaseModule):
+    '''
+        Module for joining
+    '''
+    
+    def build_parser(self):
+        parser = SimpleArgumentParser(prog="part")
+        parser.add_argument("chan", help="Part a channel", metavar="CHANNEL")
+        parser.add_argument("msg", nargs="*", help="Part message", metavar="MESSAGE")
+        return parser
+    
+    def output(self, nick, host, auth, powers, options):
+        self._bot.part(options.chan, ' '.join(options.msg))
+        
 class QuitModule(BaseModule):
     '''
         Module for managin quits
@@ -73,7 +87,7 @@ class BanModule(BaseModule):
     
     def build_parser(self):
         parser = SimpleArgumentParser(prog="ban")
-        parser.add_argument("-r", "--remove", dest="remove", help="Remove ban")        
+        parser.add_argument("-r", "--remove", action="store_true", help="Remove ban")        
         parser.add_argument("nicks", nargs="+", help="Nicks of users", metavar="NICKS")
         return parser
     
@@ -119,7 +133,7 @@ class SayModule(BaseModule):
     def build_parser(self):
         parser = SimpleArgumentParser(prog="say")
         parser.add_argument("-w", "--whisper", dest="notice", help="Whisper to user", metavar="NICK")
-        parser.add_argument("-s", "--self", dest="me", help="Speak to self")
+        parser.add_argument("-s", "--self", dest="me", action="store_true", help="Speak to self")
         parser.add_argument("-m", "--privmsg", dest="privmsg", help="Message to channel or user", metavar="NICK")        
         parser.add_argument("msg", nargs="+", help="Message", metavar="MESSAGE")
         return parser
@@ -162,7 +176,7 @@ class ArmageddonModule(BaseModule):
                     if hostmask not in self._whitelist:
                         self._whitelist.append(hostmask)
                         count += 1
-                self._bot.notice(nick, '%d hostmak(s) added' % count)
+                self._bot.notice(nick, '%d hostmask(s) added' % count)
             else:
                 count = 0
                 for hostmask in options.hostmasks:                    
@@ -181,7 +195,7 @@ class ArmageddonModule(BaseModule):
                             count += 1                                
                     except:
                         pass                    
-                self._bot.notice(nick, '%d hostmak(s) removed' % count)
+                self._bot.notice(nick, '%d hostmask(s) removed' % count)
                     
         elif options.list:
             self._bot.send_multiline(self._bot.notice, nick, 'Whitelisted hostnames are:\n' + '\n'.join([ '%2d) %s' % (i[0], i[1]) for i in zip(range(1,len(self._whitelist)+1), self._whitelist)]))
@@ -210,10 +224,10 @@ class FlagModule(BaseModule):
     
     def build_parser(self):
         parser = SimpleArgumentParser(prog="flags", prefix_chars="+-", add_help=None, usage="flags [--help] +/-[hulkbatv]")
-        parser.add_argument("--help", action="store_true", dest="help", default=False, help="Show this help")
+        parser.add_help_argument("--help", action="store_true", dest="help", default=False, help="Show this help")
         parser.add_flag("+h", "-h", dest="hear", help="Hear commands")
         parser.add_flag("+v", "-v", dest="voice", help="Voice results")
-        parser.add_flag("+l", "-l", dest="log", help="Enable enabled")
+        parser.add_flag("+l", "-l", dest="log", help="Enable logging")
         parser.add_flag("+k", "-k", dest="kick", help="Allow kicking")
         parser.add_flag("+b", "-b", dest="ban", help="Allow banning")
         parser.add_flag("+a", "-a", dest="arma", help="Allow armageddon (kickban)")
@@ -249,15 +263,19 @@ class FlagModule(BaseModule):
             self._bot.status('url', options.url)
             nothing = False
             
-        if nothing:
-            status = ''
-            for k,v in self._bot.status():
-                if v:
-                    status += k[0]
+        # Build Flag String
+        status = ''
+        for k,v in self._bot.status():
+            if v:
+                status += k[0]
+                    
+        if nothing:            
             if len(status):
                 self._bot.notice(nick, 'Flags are: +' + ''.join(sorted(status)))
             else:                                  
                 self._bot.notice(nick, 'No flags are set')
+        else:
+            self._bot.notice(nick, 'Flag(s) have been updated: ' + ''.join(sorted(status)))
         
     def get_state(self):
         return {'flags': self._bot.status(flag_dict=True)}
@@ -272,84 +290,74 @@ class EnforceModule(BaseModule):
     def __init__(self, interface):       
         BaseModule.__init__(self, interface)
         self._enforcer = Enforcer() 
-        self._regex_name = re.compile(r'^:([^!]+)!([^@]+)@(.*)$')
+        self._regex_name = re.compile(r'^:([^!]+)!([^@]+)@(.*)$')        
         
     def build_parser(self):
         parser = SimpleArgumentParser(prog="enforce")        
-        parser.add_argument("-k", "--kick", dest="kick", action="store_true", help="Enforce a kick [Default]")
-        parser.add_argument("-b", "--ban", dest="ban", action="store_true", help="Enforce a ban")
+        parser.add_argument("-a", "--add", dest="add", choices=["kick", "ban", "arma"], help="Enforce a rule [Default: kick]", metavar="GROUP")
         parser.add_argument("-l", "--list", dest="list", action="store_true", help="List rules")
-        parser.add_argument("-r", "--remove", dest="remove", action="store_true", help="Remove rule (specify rule or index)")
-        parser.add_argument("-e", "--regex", dest="regex", action="store_true", help="Rule is a regex")
-        parser.add_argument("rule", nargs="*", help="Match rule", metavar="RULE")
+        parser.add_argument("-r", "--remove", dest="remove", choices=["kick", "ban", "arma"], help="Remove rule", metavar="GROUP")
+        parser.add_argument("-x", "--regex", dest="regex", action="store_true", help="Rule is a regex")
+        parser.add_argument("rule", nargs="*", help="Match rule (add), Group (list), Rule/Index (remove)", metavar="RULE|GROUP|INDEX")
         return parser
     
     def output(self, nick, host, auth, powers, options):
         if len(options.rule) == 0:
-            if options.list:
-                lst = self._enforcer.get_rules()
-                if len(lst):
-                    self._bot.send_multiline(self._bot.notice, nick, 'Rules are:\n' + '\n'.join([ '%2d) %s' % (i[0], i[1]) for i in zip(range(1,len(lst)+1), lst)]))
+            if options.list:                
+                if len(options.rule):
+                    d = self._enforcer.rules(options.rule)
+                    if d:
+                        d = {options.rule: d}
+                else:
+                    d = self._enforcer.rules()
+                    
+                if d:
+                    self._bot.send_multiline(self._bot.notice, nick, '\n'.join('Rules for "%s" are:\n%s' % (k, '\n'.join(['%s) %s %s' % (i[0], i[1][0], '[regex]' if i[1][1] else '') for i in zip(range(1, len(v)+1), v)])) for k, v in d.items()))
                 else:
                     self._bot.notice(nick, 'No rules exist')
             else:
                 self.send_multiline(self._bot.notice, nick, self.help())
         else:
-            if options.regex:
-                options.rule = ' '.join(options.rule)
-            else:
-                options.rule = ' '.join(options.rule).replace("*", ".*").replace("?", ".")
-                
-            if options.remove:
-                try:
-                    if options.rule[0] == '%':                    
-                        if self._enforcer.remove_at(int(options.rule.lstrip('%')) - 1):
-                            self._bot.notice(nick, 'Rule has been removed')
-                except ValueError:
-                    if self._enforcer.remove(options.rule):
-                        self._bot.notice(nick, 'Rule has been removed')                            
+            options.rule = ' '.join(options.rule)
+            if options.remove:               
+                if options.rule[0] == '%':
+                    try:
+                        if self._enforcer.remove_at(options.remove, int(options.rule.lstrip('%')) - 1):
+                            self._bot.notice(nick, 'Rule has been removed from group "%s"' % options.remove)
+                    except ValueError:
+                        if self._enforcer.remove(options.remove, options.rule):
+                            self._bot.notice(nick, 'Rule has been removed from group "%s"' % options.remove)    
+                else:
+                    if self._enforcer.remove(options.remove, options.rule, options.regex):
+                        self._bot.notice(nick, 'Rule has been removed from group "%s"' % options.remove)                                    
             else:                                                                    
-                self.add_enforce(options)                                       
-                self._bot.notice(nick, 'Rule has been enforced')  
-    
-    def add_enforce(self, options):
-        def enforce_kick(nick):                            
-            self._bot.kick(self._regex_name.search(':' + nick).group(1), "The kinds of you aren't welcome here")
-        def enforce_ban(nick):
-            self._bot.ban(nick)
-        def enforce_arma(nick):
-            self._bot.kickban([self._regex_name.search(':'+nick).group(1)])
-                                        
-        if options.kick and options.ban:                            
-            self._enforcer.add(options.rule, enforce_arma, 'arma')                            
-        elif options.ban:
-            self._enforcer.add(options.rule, enforce_ban, 'ban')
-        else:
-            self._enforcer.add(options.rule, enforce_kick, 'kick')
+                if self._enforcer.add(options.add, options.rule, options.regex):                                       
+                    self._bot.notice(nick, 'Rule has been enforced to a new group "%s"' % options.add)
+                else:  
+                    self._bot.notice(nick, 'Rule has been enforced to group "%s"' % options.add)
             
-    def enforce(self, user):
-        self._enforcer.enforce(user)  
-        
+    def enforce(self, user):        
+        action = self._enforcer.enforce(user)
+        m = self._regex_name.match(':'+user)
+        if action == "kick":  
+            self._bot.kick(m.group(1), "The kinds of you aren't welcome here")
+        elif action == "ban":
+            self._bot.ban(m.group(1))
+        elif action == "arma":
+            self._bot.kickban([m.group(1)])#self._regex_name.search(':'+nick).group(1)])
+            
     def get_state(self):
-        d = {'rules': []}
-        for r, v in self._enforcer.get_items():            
-            d['rules'].append((r, v[1]))        
+        d = {'rules': {}}        
+        for k, v in self._enforcer.rules().items():
+            d['rules'][k] = []
+            for rule in v:            
+                d['rules'][k].append(rule)        
         return d 
     
-    # Dummy class for anonymous object instantiation
-    class Object(object):
-            pass
-        
     def set_state(self, state):                
-        for i in state['rules']:
-            o = self.Object()
-            o.rule = i[0]
-            o.kick = o.ban = 'arma'
-            if i[1] == 'kick':
-                o.ban = False
-            elif i[1] == 'ban':
-                o.kick = False
-            self.add_enforce(o)
+        for k, v in state['rules'].items():
+            for r, e in v:
+                self._enforcer.add(k, r, e)
         
 class UserAuthModule(BaseModule):
     '''
@@ -358,33 +366,45 @@ class UserAuthModule(BaseModule):
     def build_parser(self):
         parser = SimpleArgumentParser(prog="users")
         group = parser.add_mutually_exclusive_group()
-        group.add_argument("-a", "--add", dest="add", choices=["admin", "mod", "mgr"], help="Add a user", metavar="GROUP")        
-        group.add_argument("-r", "--remove", dest="remove", help="Remove a user from group (specify user or index)", metavar="GROUP")        
-        group.add_argument("-l", "--list", dest="list", action="store_true", help="List the users of a bot")
+        group.add_argument("-a", "--add", dest="add", help="Add to this group", metavar="GROUP")        
+        group.add_argument("-r", "--remove", dest="remove", help="Remove from this group", metavar="GROUP")        
+        group.add_argument("-l", "--list", dest="list", action="store_true", help="List the users of a bot")        
+        parser.add_argument("-t", "--auth", dest="auth", action="store_true", help="Authority level for group (0-255)")
         parser.add_argument("-p", "--power", dest="power", action="store_true", help="Specify the powers")
-        parser.add_argument("hostmasks", nargs="*", help="User's hostmask or group's powers (-p)", metavar="HOSTMASK|POWER")
+        parser.add_argument("hostmasks", nargs="*", help="User's hostmask or powers (-p) or auth (-t)", metavar="HOSTMASK|POWER|AUTH")
         return parser
     
     def output(self, nick, host, auth, powers, options):
-        if options.add:            
-            if self._bot.user_auth(role=options.add) > self._bot.user_auth(user=host):
+        if options.add:
+            if options.auth:                
+                try:
+                    a = int(options.hostmasks[0])
+                    if a > self._bot.user_auth(user=host) and self._bot.role_add(options.add, a):                        
+                        self._bot.notice(nick, 'The group "%s" has been added with authority level %d' % (options.add, a))
+                    else:
+                        self._bot.notice(nick, 'You can only add groups with lower auth than yours.')
+                except ValueError:
+                    self._bot.notice(nick, 'Invalid value for auth. Please use integers only.')
+            elif self._bot.user_auth(role=options.add) > self._bot.user_auth(user=host):
                 if options.power:
                     count = 0
                     for power in options.hostmasks:
                         if self._bot.role_power(options.add, power):
                             count += 1
-                    self._bot.notice(nick, '%d power(s) added to group %s' % (count, options.add))
+                    self._bot.notice(nick, '%d power(s) added to group %s' % (count, options.add))                
                 else:
                     count = 0
                     for hostmask in options.hostmasks:
                         if self._bot.user_add(options.add, hostmask):
                             count += 1
-                    self._bot.notice(nick, '%d hostmak(s) added as %s' % (count, options.add))
+                    self._bot.notice(nick, '%d hostmask(s) added as %s' % (count, options.add))
             else:                
-                self._bot.notice(nick, 'You can only add users to a lower group than yourself')
+                self._bot.notice(nick, 'You can only add users/powers to a lower group than yourself')
         elif options.list:
             if options.power:
                 self._bot.send_multiline(self._bot.notice, nick, 'Powers are:\n' + '\n'.join(['[%s] : %s' % (k, ', '.join(['All'] if l is None else l)) for k, l in self._bot.power_list()]))            
+            elif options.auth:
+                self._bot.send_multiline(self._bot.notice, nick, 'Roles are:\n' + '\n'.join(['[%s] : %s' % (k, l) for k, l in self._bot.role_list()]))
             else:
                 self._bot.send_multiline(self._bot.notice, nick, 'Users are:\n' + '\n'.join(['[%s] : %s' % (k, ', '.join(l)) for k, l in self._bot.user_list()]))
         elif options.remove:            
@@ -395,14 +415,17 @@ class UserAuthModule(BaseModule):
                         if self._bot.role_power(options.remove, power, remove=True):
                             count += 1
                     self._bot.notice(nick, '%d power(s) removed from group %s' % (count, options.remove))
+                elif options.auth:
+                    if self._bot.role_remove(options.remove):
+                        self._bot.notice(nick, 'The group "%s" has been removed' % options.remove)
                 else:
                     count = 0
                     for hostmask in options.hostmasks:
                         if self._bot.user_remove(options.remove, hostmask):
                             count += 1
-                    self._bot.notice(nick, '%d hostmak(s) removed from %s' % (count, options.remove))
+                    self._bot.notice(nick, '%d hostmask(s) removed from %s' % (count, options.remove))
             else:
-                self._bot.notice(nick, 'You can only remove users of a lower group than yourself')
+                self._bot.notice(nick, 'You can only remove users/powers of a lower group than yourself')
                 
 
 class ModManagerModule(BaseModule):
@@ -468,16 +491,15 @@ class SimpleLogModule(BaseModule):
     def log(self, msg):  
         if self._logging:
             now = datetime.utcnow()            
-            d = now - self._date
-            if d.days >= 1:
+            #d = now - self._date
+            if self._date.date() != now.date():
                 self._date = now
                 self.close()
                 Log.write('Opening Log: ' + os.path.join(self._dir, datetime.strftime(self._date, self._format)))
                 self._file = open(os.path.join(self._dir, datetime.strftime(self._date, self._format)), "a")
                         
             self._buffer += datetime.strftime(now, "[%H:%M:%S] ") + msg + '\n'
-            #print msg
-            if len(self._buffer) == 1024:                
+            if len(self._buffer) > 1024:                
                 self._file.write(self._buffer)
                 self._buffer = ""             
     

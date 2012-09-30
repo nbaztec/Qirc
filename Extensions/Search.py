@@ -12,7 +12,7 @@ from Util import htmlx
 from Util.Log import Log
 
 appid = {
-            'google'    : '####',
+            'google'    : 'XXXX',
         }
 
 

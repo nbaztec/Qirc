@@ -10,7 +10,7 @@ from Util.BeautifulSoup import BeautifulSoup
 from Util.Log import Log
 
 appid = {
-            'ipinfo'    : '####'
+            'ipinfo'    : 'XXXX'
         }
    
 def iplocate(ip): 
@@ -45,7 +45,11 @@ def geo(latitude, longitude):
         page = response.read()                            
         response.close()
         soup = BeautifulSoup(page)
-        address = str(soup.find('result').find('formatted_address').find(text=True))        
+        for addr in soup.findAll('formatted_address'):
+            address = addr.find(text=True)
+            if address:
+                address = str(address)
+                break       
         return '[%s, %s] : %s' % (latitude, longitude, address)        
     except Exception:
         Log.error()

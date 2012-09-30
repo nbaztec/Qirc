@@ -23,7 +23,10 @@ class BaseInterface(object):
     
     @property
     def channel(self):
-        return self.current_channel
+        if len(self.params['chan']):
+            return self.params['chan'][0]
+        else:
+            return ''
 
 class VerbalInterface(BaseInterface):
     '''
@@ -80,12 +83,16 @@ class PrivilegedInterface(EnforcerInterface):
         EnforcerInterface.__init__(self, bot) 
         self.armageddon = bot.armageddon
         self.join = bot.join
+        self.part = bot.part
         self.disconnect = bot.disconnect
         self.nick = bot.nick
         self.ghost = bot.ghost
         self.identify = bot.identify
         self.role_power = bot.role_power
         self.power_list = bot.power_list
+        self.role_list = bot.role_list
+        self.role_add = bot.role_add
+        self.role_remove = bot.role_remove
         self.user_add = bot.user_add
         self.user_remove = bot.user_remove
         self.user_auth = bot.user_auth

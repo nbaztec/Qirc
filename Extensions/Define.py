@@ -12,8 +12,8 @@ from Util import htmlx
 from Util.Log import Log
 
 appid = {
-            'google'    : '####',
-            'stands4'   : {'userid': '####', 'token': '####'}
+            'google'    : 'XXXX',
+            'stands4'   : {'userid': 'XXXX', 'token': 'XXXX'}
         }
 
 def googledefine(query, num=1):    

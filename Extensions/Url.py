@@ -14,10 +14,18 @@ from Util.BeautifulSoup import BeautifulSoup
 from Util import htmlx
 
 appid = {
-            'google'    : '####',
+            'google'    : 'XXXX',
         }
 
 url_regex = re.compile(r'^https?://([^/]+)(.*)$')
+
+def min_url(url, maxlen=20):
+    idx = url.find('://')
+    if idx != -1:
+        url = url[idx+3:]
+    if len(url) > maxlen:
+        url = url[:maxlen/2] + '...' + url[-maxlen/2:]
+    return url
 
 def dns(url):
     '''
@@ -89,11 +97,11 @@ def title(url, only_title=False):
                     response.close()
                     soup = BeautifulSoup(page)
                     if only_title:      
-                        return 'Title %s' % htmlx.unescape(''.join(soup.find('title').findAll(text=True)))
+                        return 'Title: %s' % htmlx.unescape(''.join(soup.find('title').findAll(text=True)))
                     else:
-                        return 'Title %s : url %s' % (htmlx.unescape(''.join(soup.find('title').findAll(text=True))), url)
+                        return '%s : url %s' % (htmlx.unescape(''.join(soup.find('title').findAll(text=True))), min_url(url))
                 else:                    
-                    return 'Title not available for content type %s : url %s' % (ctype, url)
+                    return 'Title not available for content type %s : url %s' % (ctype, min_url(url))
             except Exception:
                 Log.error()
                 return None
@@ -154,8 +162,8 @@ def googleshort(url):
         response = urllib2.urlopen(req)        
         page = response.read()                        
         response.close()
-        result = json.loads(page)    
-        return 'Short URL %s : %s' % (result['id'], result['longUrl'])
+        result = json.loads(page)        
+        return 'Short URL %s : %s' % (result['id'], min_url(result['longUrl']))
     except Exception:
         Log.error()
         return None

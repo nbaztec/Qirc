@@ -22,7 +22,7 @@ class SearchModule(BaseToggleModule):
         parser = SimpleArgumentParser(prog="!search")
         parser.add_argument("-p", "--private", action="store_true", dest="private", default=False, help="Get results in private")
         parser.add_argument("-t", "--result", type=int, dest="result", default=1, help="Get the N'th result", metavar="N")
-        parser.add_argument("-1", "--single", action="store_true", dest="single", default=False, help="Output single line of title")
+        parser.add_argument("-v", "--verbose", action="store_true", dest="verbose", help="Output textual descriptions")
         group = parser.add_mutually_exclusive_group()
         group.add_argument("-g", "--google", action="store_true", dest="google", default=True, help="Search on Google [Default]")
         group.add_argument("-i", "--gimage", action="store_true", dest="gimage", default=False, help="Search on Google Images")
@@ -36,20 +36,21 @@ class SearchModule(BaseToggleModule):
         
     def output(self, nick, host, auth, powers, options):              
         args = ' '.join(options.args)                
+        single = not options.verbose
         if options.custom:
-            r = Search.customsearch(args, options.custom, options.result, options.single)              
+            r = Search.customsearch(args, options.custom, options.result, single)              
         elif options.gimage:
-            r = Search.googleimage(args, options.result, options.single)
+            r = Search.googleimage(args, options.result, single)
         elif options.youtube:
-            r = Search.youtube(args, options.result, options.single)
+            r = Search.youtube(args, options.result, single)
         elif options.wiki:
-            r = Search.wiki(args, options.result, options.single)
+            r = Search.wiki(args, options.result, single)
         elif options.imdb:
-            r = Search.imdb(args, options.result, options.single)
+            r = Search.imdb(args, options.result, single)
         elif options.tdf:
-            r = Search.tdf(args, options.result, options.single)
+            r = Search.tdf(args, options.result, single)
         elif options.google:
-            r = Search.google(args, options.result, options.single)
+            r = Search.google(args, options.result, single)
         else:
             r = "No results for you"
         
@@ -213,7 +214,7 @@ class UrlModule(BaseToggleModule):
     def __init__(self, interface):
         BaseToggleModule.__init__(self, interface)
         self._last5urls = []
-        self._regex_url = re.compile(r'\b((?:telnet|ftp|rtsp|https?)://[^/]+[-\w_/?=%&+;#\\@]*)')
+        self._regex_url = re.compile(r'\b((?:telnet|ftp|rtsp|https?)://[^/]+[-\w_/?=%&+;#\\@.]*)')
     
     def build_parser(self):
         parser = SimpleArgumentParser(prog="!url", prefix_chars="+-")
@@ -298,7 +299,7 @@ class UserModule(BaseToggleModule):
         parser = SimpleArgumentParser(prog="!user")
         parser.add_argument("-p", "--private", action="store_true", dest="private", default=False, help="Get results in private")
         group = parser.add_mutually_exclusive_group()
-        group.add_argument("-c", "--clear", action="store_true", dest="clear", help="Clear messages for 'remind' or 'tell') [Admin]")
+        group.add_argument("-c", "--clear", action="store_true", dest="clear", help="Clear messages for 'remind' or 'tell' [Admin]")
         group.add_argument("-s", "--seen", dest="seen", action="store_true", default=True, help="Check when a user was last seen [Default]")
         group.add_argument("-t", "--tell", dest="tell", help="Leave a message for the user", metavar="USER")
         group.add_argument("-r", "--remind", dest="remind", help="Set a reminder for self", metavar="XX(d,h,m,s)")
@@ -319,9 +320,6 @@ class UserModule(BaseToggleModule):
                 self._bot.notice(nick, 'Ok, I will convey the message to %s' % options.tell)
             else:
                 self._bot.notice(nick, 'Atleast specify a message :/')
-            #for usr in options.args:                
-            #    self._tell.post(nick, usr, options.tell)
-            #    self._bot.notice(nick, 'Ok, I will convey the message to %s' % usr)            
         elif options.remind:   
             try:             
                 arg = ' '.join(options.args)      
@@ -332,8 +330,11 @@ class UserModule(BaseToggleModule):
             except Remind.RemindValueError, e:
                 self._bot.notice(nick, e.message)
         elif options.seen:                  
-            for usr in options.args:         
-                r = self._seen.seen(usr)
+            for usr in options.args:
+                if usr == self._bot.botnick:
+                    r = "Me? Surely you ca't be serious"
+                else:
+                    r = self._seen.seen(usr)
                 if r:
                     if options.private:
                         self._bot.notice(nick, r)
@@ -393,7 +394,7 @@ class VoteModule(BaseToggleModule):
                         vote = p - n
                         if vote > 0:                        
                             self._bot.say('The general public (%d) has agreed to kick %s' % (p + n, kick_users))
-                            for u in kick_users.split(','):
+                            for u in kick_users.split():
                                 self._bot.kick(u, kick_reason)
                         elif vote < 0:                        
                             self._bot.say('The general public (%d) has disagreed to kick %s' % (p + n, kick_users))
@@ -404,23 +405,25 @@ class VoteModule(BaseToggleModule):
                 # Call
                 self._vote.start(options.interval, 'kick %s %s' % (kick_users, kick_reason), self._bot.say, vote_result)                
         elif options.arma:          
-            args = ' '.join(options.args)                                                              
+            #args = ' '.join(options.args)                                                              
             if auth < 3:                                
                 # Define calback
+                arma_users = options.args[0]
+                arma_reason = ' '.join(options.args[1:])
                 def vote_result(p, n, q):
-                    if (p+n) > 0:
+                    if (p+n) > 1:
                         vote = p - n
                         if vote > 0:
-                            self._bot.say('The general public (%d) has agreed to bring forth armageddon upon %s' % (p + n, args))                            
-                            self._bot.kickban(args.split())
+                            self._bot.say('The general public (%d) has agreed to bring forth armageddon upon %s' % (p + n, arma_users))                            
+                            self._bot.kickban(arma_users.split())
                         elif vote < 0:
-                            self._bot.say('The general public (%d) has disagreed to bring forth armageddon upon %s' % (p + n, args))
+                            self._bot.say('The general public (%d) has disagreed to bring forth armageddon upon %s' % (p + n, arma_users))
                         else:
-                            self._bot.say('The outcome is a draw! %s is/are saved.' % args)
+                            self._bot.say('The outcome is a draw! %s is/are saved.' % arma_users)
                     else:
                         self._bot.say('A minimum of 2 votes are required for taking decision.')
                 # Call    
-                self._vote.start(options.interval, 'Bring forth armageddon upon %s?' % args, self._bot.say, vote_result)                
+                self._vote.start(options.interval, 'Bring forth armageddon upon %s? (%s)' % (arma_users, arma_reason), self._bot.say, vote_result)                
         else:                                       # Regular vote
             args = ' '.join(options.args)
             def vote_result(p, n, q):
@@ -446,8 +449,8 @@ class RollModule(BaseToggleModule):
     def build_parser(self):
         parser = SimpleArgumentParser(prog="!roll")
         parser.add_argument("-p", "--private", action="store_true", dest="private", default=False, help="Get results in private")
-        parser.add_argument("-m", "--min", type=int, dest="min", default=1, help="Minimum range. Default %default", metavar="M")
-        parser.add_argument("-n", "--max", type=int, dest="max", default=6, help="Maximum range. Default %default", metavar="N")
+        parser.add_argument("-m", "--min", type=int, dest="min", default=1, help="Minimum range. Default %(default)s", metavar="M")
+        parser.add_argument("-n", "--max", type=int, dest="max", default=6, help="Maximum range. Default %(default)s", metavar="N")
         return parser
         
     def output(self, nick, host, auth, powers, options):              

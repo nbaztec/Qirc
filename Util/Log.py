@@ -56,10 +56,11 @@ class Log(object):
         Enables a LogCat like static logging class for Qirc
     '''
     _filename = 'Qirc.log'
-    _timestamps = False
+    
     _queue = Queue()
     _stop = False
     _thread = None
+    timestamps = False
     debug = False
     enabled = True
                  
@@ -83,13 +84,13 @@ class Log(object):
                     mode = 'N'
                 
                 if cls.debug:
-                    print '%s %s' % (mode, str(msg))
+                    print '%s%s %s' % (time.strftime('[%d-%m-%Y %H:%M:%S] ') if cls.timestamps else '', mode, str(msg))
                 else:        
                     if cls._thread is None:
                         cls._thread = Thread(target=Log.perform_write, name='perform_write')
                         cls._thread.start()
                     try:                        
-                        cls._queue.put('%s%s %s\n' % (time.strftime('%d-%m-%Y %H:%M:%S ') if cls._timestamps else '', mode, str(msg)))
+                        cls._queue.put('%s%s %s\n' % (time.strftime('[%d-%m-%Y %H:%M:%S] ') if cls.timestamps else '', mode, str(msg)))
                     except Exception, e:
                         print '>> Log.write %s' % e
                     

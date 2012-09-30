@@ -3,6 +3,7 @@ Created on Jul 30, 2012
 
 @author: Nisheeth
 '''
+from Util.Log import Log
 import shlex
 from Module import ModuleResult
 
@@ -94,7 +95,10 @@ class BaseManager(object):
         # Persistence
         s = self.get_module_state(key)          
         if s:
-            module.set_state(s)                 # Load the modules previous state
+            try:
+                module.set_state(s)                 # Load the modules previous state
+            except:
+                Log.error('Error restoring state for %s. Have you changed the class structure? : ' % key)
     
     def remove(self, key):
         '''
@@ -177,6 +181,7 @@ class BaseManager(object):
             @summary: Splits a string as done by a shell
         '''
         lex = shlex.shlex(args, posix=True)
+        lex.quotes = '"'
         lex.escape = ''
         lex.commenters = ''
         lex.whitespace_split = True
@@ -208,9 +213,14 @@ class ModuleManager(BaseManager):
             try:
                 args = self.arg_split(args)
                 return key, self._modules[key].output(nick, host, auth, powers, parser.parse_args(args)), True
-            except Exception, e:
-                print "Error", e
+            except ValueError, e:
+                print "ParserError", e.message
+                return key, ModuleResult('Parser Error: %s' % e), False
+            except StopIteration, e:    # help requested
                 return key, ModuleResult(parser.format_help()), False
+            except Exception, e:    
+                print "ArgumentError", e
+                return key, ModuleResult('Argument Error: %s. Use -h/--help to get help on the parameters' % e), False 
         else:
             return key, ModuleResult("Module is disabled"), False
                 
@@ -241,8 +251,55 @@ class CommandManager(BaseManager):
             try:
                 args = self.arg_split(args)
                 return key, self._modules[key].output(nick, host, auth, powers, parser.parse_args(args)), True
-            except Exception, e:
-                print "Error", e
+            except ValueError, e:
+                print "ParserError", e.message
+                return key, ModuleResult('Parser Error: %s' % e), False
+            except StopIteration, e:    # help requested
                 return key, ModuleResult(parser.format_help()), False
+            except Exception, e:    
+                print "ArgumentError", e
+                return key, ModuleResult('Argument Error: %s. Use -h/--help to get help on the parameters' % e), False
+            #except Exception, e:
+                #print "Error", e
+                #return key, ModuleResult(parser.format_help()), False
         #else:
         #    return key, ModuleResult("Command is disabled"), False
+        
+class ExternalManager(BaseManager):
+    '''
+        Manages External Modules
+    '''    
+    def add(self, module):
+        '''
+            @var module: An instance of type BaseExternalModule
+            @summary: Adds the module to the manager
+        '''
+        self._modules[module.key] = module
+        if module.aliases is not None:
+            for a in module.aliases:
+                self._aliases[a] = module.key
+        # Persistence
+        s = self.get_module_state(module.key)
+        if s:
+            module.set_state(s)                 # Load the modules previous state    
+        
+    def parse(self, nick, host, auth, powers, key, args):        
+        if self._aliases.has_key(key):
+            key = self._aliases[key]
+        if not self.exists(key):
+            return None, None, None
+        elif self.is_enabled(key):
+            parser = self._modules[key].parser        
+            try:
+                args = self.arg_split(args)
+                return key, self._modules[key].output(nick, host, auth, powers, parser.parse_args(args)), True
+            except ValueError, e:
+                print "ParserError", e.message
+                return key, ModuleResult('Parser Error: %s' % e), False
+            except StopIteration, e:    # help requested
+                return key, ModuleResult(parser.format_help()), False
+            except Exception, e:    
+                print "ArgumentError", e
+                return key, ModuleResult('Argument Error: %s. Use -h/--help to get help on the parameters' % e), False 
+        else:
+            return key, ModuleResult("Module is disabled"), False

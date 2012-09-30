@@ -4,6 +4,7 @@ Created on Jul 30, 2012
 @author: Nisheeth
 '''
 from abc import ABCMeta, abstractmethod
+from QircBot.Interfaces.BotInterface import VerbalInterface
 
 class BaseModule(object):
     '''
@@ -74,12 +75,42 @@ class BaseToggleModule(BaseModule):
     def set_state(self, state):
         self._enabled = state['enabled']
        
+class BaseExternalModule(BaseToggleModule):
+    '''
+        Base External Toggle Module
+    '''
+    __metaclass__ = ABCMeta
+           
+    def __init__(self, interface):
+        '''
+            @var interface: An instance of BotInterface
+        '''        
+        super(BaseExternalModule, self).__init__(interface)
+        self._key, self._aliases = self.build_trigger()        
+        
+    @abstractmethod
+    def build_trigger(self):
+        '''
+            @summary: Returns a tuple representing the (command-name, command-alias-list)
+        '''
+        return (None, None)
+    
+    @property
+    def key(self):
+        return self._key
+    
+    @property
+    def aliases(self):
+        return self._aliases
+    
+    @classmethod
+    def get_interface_type(cls):
+        return VerbalInterface
+    
+    
 class ModuleResult(object):
     '''
         Represents the result returned by modules
     '''
     def __init__(self, output=None):
         self.output = output        
-        
-        
-        

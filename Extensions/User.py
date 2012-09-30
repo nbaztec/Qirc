@@ -7,6 +7,7 @@ from datetime import timedelta
 import time
 import re
 from threading import Thread
+from Util import Chronograph
 
 class SimpleError(Exception):
     def __init__(self, msg):
@@ -37,9 +38,9 @@ class Tell(object):
             @summary: Puts the tuple (sender, text) in the inbox of recepient 
         '''
         if self._buffer.has_key(to):
-            self._buffer[to].append((sender, text))            
+            self._buffer[to].append((sender, text, datetime.utcnow()))            
         else:
-            self._buffer[to] = [(sender, text)]            
+            self._buffer[to] = [(sender, text, datetime.utcnow())]
             
     def get(self, nick):
         '''
@@ -90,6 +91,11 @@ class Remind(object):
             @var text: The time string received
             @summary: Parses the text to create a time 
         '''
+        
+        # Fix for py2.6 not having td.total_seconds()
+        def _total_seconds(td):
+            return td.microseconds + (td.seconds + td.days * 24 * 3600)
+        
         m = self._regex_parse.match(text)
         if m is not None:
             try:
@@ -98,15 +104,15 @@ class Remind(object):
                 raise self.RemindFormatError("Invalid value")
                         
             if m.group(2) == 'd':
-                return int(time.time() + timedelta(days=rel).total_seconds())
+                return int(time.time() + _total_seconds(timedelta(days=rel)))
             elif m.group(2) == 'h':
-                return int(time.time() + timedelta(hours=rel).total_seconds())
+                return int(time.time() + _total_seconds(timedelta(hours=rel)))
             elif m.group(2) == 'm':
-                return int(time.time() + timedelta(minutes=rel).total_seconds())
+                return int(time.time() + _total_seconds(timedelta(minutes=rel)))
             elif m.group(2) == 's':
                 if rel < 30:
                     raise self.RemindValueError("Value must be greater than 30 seconds")
-                return int(time.time() + timedelta(seconds=rel).total_seconds())
+                return int(time.time() + _total_seconds(timedelta(seconds=rel)))
         raise self.RemindFormatError("Invalid value")
         
     def remind(self, nick, time, text):
@@ -182,15 +188,5 @@ class Seen(object):
         elif r[0]:
             if r[1] is None:
                 return '%s is right here' % nick
-            else:         
-                d = datetime.utcnow() - datetime.strptime(r[0], '%Y-%m-%d %H:%M:%S') + datetime(1,1,1)
-                s = ""        
-                if d.day-1:
-                    s += str(d.day-1)+'d '
-                if d.hour:
-                    s += str(d.hour)+'h '
-                if d.minute:
-                    s += str(d.minute)+'m '
-                if d.second:
-                    s += str(d.second)+'s '        
-                return '%s was last seen: %sago (%s)' % (nick, s, r[1])
+            else:                         
+                return '%s was last seen: %s ago (%s)' % (nick, Chronograph.time_ago(datetime.strptime(r[0], '%Y-%m-%d %H:%M:%S')), r[1])

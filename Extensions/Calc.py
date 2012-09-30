@@ -13,7 +13,7 @@ from Util.Log import Log
 import json
 
 appid = {
-            'wolf'      : 'xxxx',
+            'wolf'      : 'XXXX',
         }
 
 
@@ -32,7 +32,7 @@ def wolfram(query):
         for primary in primary_items:
             out.append(htmlx.unescape(''.join(primary.find('plaintext').findAll(text=True))))
         if len(out):
-            return (', '.join(out)).encode('utf-8')
+            return re.sub(r'^rupee\s*', 'Rs. ', (', '.join(out))).encode('utf-8')
         else:
             return None
     except Exception:
@@ -49,6 +49,7 @@ def googlecalc(query):
         page = response.read().replace('\xa0', ' ')                 # Convert &nbsp; to actual space
         page = re.sub(r'(\d+)(\s|\xa0)(\d+)', r'\1,\3', page)       # Replace spaces between numbers by comma
         response.close()
+        print htmlx.fixjson(page)
         result = json.loads(htmlx.fixjson(page))    
         if result['error'] == '':
             return ('%s = %s' % (htmlx.unescape(result['lhs']), htmlx.unescape(result['rhs']))).encode('utf-8')
