@@ -214,7 +214,14 @@ class UrlModule(BaseToggleModule):
     def __init__(self, interface):
         BaseToggleModule.__init__(self, interface)
         self._last5urls = []
-        self._regex_url = re.compile(r'\b((?:telnet|ftp|rtsp|https?)://[^/]+[-\w_/?=%&+;#\\@.]*)')
+        # Naive url matcher
+        #self._regex_url = re.compile(r'\b((?:telnet|ftp|rtsp|https?)://[^/]+[-\w_/?=%&+;#\\@.]*)')
+        
+        # Use this RFC Compliant-ish regex instead
+        #self._regex_url = re.compile(r"\b(?:telnet|file|ftp|rtsp|https?)://([\w;:&=+$,%-_.!~*'()]+@)?[-\w.]+(:\d+)?(/[-\w;_.!~*'()%:@&=+$,/]+)?(\?[-\w;/?:@&=+$,_.!~*'()%]+)?(\#[-\w;/?:@&=+$,_.!~*'()%]+)?")
+        
+        # This one skips delimeters at end
+        self._regex_url = re.compile(r"\b(?:telnet|file|[ts]?ftp|ftps?|irc|rtsp|https?)://([\w;:&=+$,%-_.!~*'()]+@)?[-\w.]+(:\d+)?(/[-\w;_.!~*'()%:@&=+$,/]*)?(\?[-\w;/?:@&=+$,_.!~*'()%]+)?(\#[-\w;/?:@&=+$,_.!~*'()%]+)?[\w/]")
     
     def build_parser(self):
         parser = SimpleArgumentParser(prog="!url", prefix_chars="+-")
