@@ -50,7 +50,7 @@ class SimpleArgumentParser(ArgumentParser):
     def parse_args(self, args=None, namespace=None):
         for arg in args:                # Stop if help is found
             idx = arg.rfind('-')
-            if idx == 1 and len(arg) > 2:       # Composite single switches
+            if idx == 0 and len(arg) > 2:       # Composite single switches
                 for a in arg[1:]:
                     if '-%s' % a in self.help_args:
                         raise StopIteration('help')

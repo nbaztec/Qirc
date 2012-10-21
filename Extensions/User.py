@@ -6,8 +6,8 @@ from datetime import datetime
 from datetime import timedelta
 import time
 import re
-from threading import Thread
-from Util import Chronograph
+from threading import Thread, Condition
+
 
 class SimpleError(Exception):
     def __init__(self, msg):
@@ -32,9 +32,9 @@ class Tell(object):
         
     def post(self, sender, to, text):
         '''
-            @var sender: The nick of the sender
-            @var to: The nick of the recepient
-            @var text: The message to send
+            @param sender: The nick of the sender
+            @param to: The nick of the recepient
+            @param text: The message to send
             @summary: Puts the tuple (sender, text) in the inbox of recepient 
         '''
         if self._buffer.has_key(to):
@@ -44,7 +44,7 @@ class Tell(object):
             
     def get(self, nick):
         '''
-            @var nick: The nick of the recepient            
+            @param nick: The nick of the recepient            
             @summary: Gets the list of tuples (sender, text) in the inbox of recepient
             @return: [(sender,text), (sender,text), ...]
         '''
@@ -76,6 +76,7 @@ class Remind(object):
         self._print = print_callback
         self._regex_parse = re.compile(r'^(\d+)(d|h|m|s)$', re.I)
         self.__close = False
+        self._cv_exit = Condition()
         Thread(target=self.timer, name='reminder_thread').start()
         
     def clear(self):
@@ -85,10 +86,13 @@ class Remind(object):
         
     def dispose(self):
         self.__close = True
+        self._cv_exit.acquire()
+        self._cv_exit.notify_all()
+        self._cv_exit.release()
         
     def parse_time(self, text):
         '''
-            @var text: The time string received
+            @param text: The time string received
             @summary: Parses the text to create a time 
         '''
         
@@ -117,9 +121,9 @@ class Remind(object):
         
     def remind(self, nick, time, text):
         '''
-            @var time: The timestamp to remind on
-            @var nick: The nick of the user            
-            @var text: The message to remind
+            @param time: The timestamp to remind on
+            @param nick: The nick of the user            
+            @param text: The message to remind
             @summary: Puts the tuple (timstamp, [(sender, text)] in a list 
         '''        
         time = self.parse_time(time)   
@@ -141,8 +145,10 @@ class Remind(object):
         '''                    
             @summary: Polls the reminder list
         '''
-        while not self.__close:
-            time.sleep(15)
+        while not self.__close:            
+            self._cv_exit.acquire()
+            self._cv_exit.wait(15)
+            self._cv_exit.release()
             now = int(time.time())
             for k,v in self._buffer:
                 if k <= now:
@@ -165,28 +171,37 @@ class Seen(object):
     def __init__(self, qbsqlite):
         self._qbsqlite = qbsqlite
         
-    def join(self, nick, ident, host):
-        _,count,_,_ = self._qbsqlite.update_query('UPDATE `users` SET quit_reason=NULL, num_joins=num_joins+1, timestamp=CURRENT_TIMESTAMP WHERE nick=? AND ident=? AND host=?',(nick,ident,host,))
-        if count == 0:
-            self._qbsqlite.update_query('INSERT INTO `users`(nick,ident,host) VALUES(?,?,?)',(nick,ident,host,))
+    def init(self, names):
+        for name in names.values():
+            if name.nick:
+                self.join(name.nick, name.ident, name.host, 0)
+                
+    def join(self, nick, ident, host, inc=1):
+        _,count,rid,_ = self._qbsqlite.update_query('UPDATE `users` SET quit_reason=NULL, num_joins=num_joins+?, timestamp=CURRENT_TIMESTAMP, nick=?, ident=? WHERE host=?',(inc, nick,ident,host,))
+        if count:
+            r = self._qbsqlite.select_query('SELECT id FROM `users` WHERE host=?',(host,))[0].fetchone()
+            if r:
+                _,count,_,_ = self._qbsqlite.update_query('UPDATE `aliases` SET num_joins=num_joins+?, timestamp=CURRENT_TIMESTAMP WHERE uid=? AND nick=? AND ident=?',(inc, r[0], nick,ident,))
+                if count == 0:                    
+                    self._qbsqlite.update_query('INSERT INTO `aliases`(uid,nick,ident,host,num_joins) VALUES(?,?,?,?,?)',(r[0], nick,ident,host,1,))
+        else:        
+            _,_,rid,_ = self._qbsqlite.update_query('INSERT INTO `users`(nick,ident,host,num_joins) VALUES(?,?,?,?)',(nick,ident,host,1,))
+            self._qbsqlite.update_query('INSERT INTO `aliases`(uid,nick,ident,host,num_joins) VALUES(?,?,?,?,?)',(rid, nick,ident,host,1,))
         
-    def part(self, nick, reason):
-        #self._qbsqlite.update_query('UPDATE `users` SET quit_reason=? WHERE nick=? AND ident=? AND host=?',(reason, nick,ident,host,))        
-        self._qbsqlite.update_query('UPDATE users SET quit_reason=? WHERE id=(SELECT id FROM users WHERE nick=? ORDER BY timestamp DESC LIMIT 1)',(reason, nick,))
+    def part(self, nick, ident, host, reason):                
+        self._qbsqlite.update_query('UPDATE users SET timestamp=CURRENT_TIMESTAMP, quit_reason=? WHERE host=?',(reason, host,))
         
-    def check(self, nick):
-        r = self._qbsqlite.select_query('SELECT ident, host FROM users WHERE nick=? GROUP BY ident, host ORDER BY num_joins DESC',(nick,))[0].fetchone()
-        if r is None:
-            return None
-        else:
-            return self._qbsqlite.select_query('SELECT timestamp, quit_reason FROM users WHERE nick=? AND ident=? AND host=? ORDER BY timestamp DESC',(nick, r[0], r[1],))[0].fetchone()
-
     def seen(self, nick):
-        r = self.check(nick)
+        r = self._qbsqlite.select_query('SELECT uid FROM aliases WHERE nick=? ORDER BY num_joins DESC, timestamp DESC LIMIT 1',(nick,))[0].fetchone()
         if r is None:
-            return "No I haven't seen %s lately" % nick 
-        elif r[0]:
-            if r[1] is None:
-                return '%s is right here' % nick
-            else:                         
-                return '%s was last seen: %s ago (%s)' % (nick, Chronograph.time_ago(datetime.strptime(r[0], '%Y-%m-%d %H:%M:%S')), r[1])
+            return None, None, None, None
+        else:
+            res, _, _, _, = self._qbsqlite.select_query('SELECT nick, ident, host FROM aliases WHERE uid=? ORDER BY num_joins DESC, timestamp DESC',(r[0],))            
+            nicks = []
+            for c in res:                
+                nicks.append(c[0])
+            r = self._qbsqlite.select_query('SELECT ident, host, timestamp, quit_reason FROM users WHERE id=? ORDER BY timestamp DESC LIMIT 1',(r[0], ))[0].fetchone()
+            if r:
+                return nicks, ('%s!%s@%s' % (nick, r[0], r[1])), r[2], r[3]
+            else:
+                return None, None, None, None

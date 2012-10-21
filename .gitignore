@@ -1,5 +1,6 @@
 *.py[co]
 *.pkl
+*.db
 
 # Packages
 *.egg

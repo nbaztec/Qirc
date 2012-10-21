@@ -17,7 +17,7 @@ class VoteMaster(object):
         
     def start(self, time, ques, output, result):
         '''
-            @var ques: The voting question
+            @param ques: The voting question
             @summary: Starts a voting session
         '''
         if self.is_voting:      # Don't start if existing session is underway
@@ -38,9 +38,9 @@ class VoteMaster(object):
         
     def register_vote(self, nick, host, vote):
         '''
-            @var nick: The nick of user who voted
-            @var host: The host of user who voted
-            @var vote: The vote (+,-)
+            @param nick: The nick of user who voted
+            @param host: The host of user who voted
+            @param vote: The vote (+,-)
             @summary: Registers a unique vote per user
             @notice: Host is used to identify same people            
         '''

@@ -8,8 +8,8 @@ import random
 
 def roll(m=1, n=6):
     '''
-        @var m: The lower limit
-        @var n: The upper limit
+        @param m: The lower limit
+        @param n: The upper limit
         @summary: Rolls a random number between m and n 
     '''   
     return str(random.randint(m, n))

@@ -29,7 +29,7 @@ def min_url(url, maxlen=20):
 
 def dns(url):
     '''
-        @var url: The url to resolve
+        @param url: The url to resolve
         @summary: Performs the DNS lookup of host        
     '''
     try:
@@ -40,8 +40,8 @@ def dns(url):
 
 def port(url, port):
     '''
-        @var url: The url to resolve
-        @var port: The port to connect to
+        @param url: The url to resolve
+        @param port: The port to connect to
         @summary: Checks if the specified port is open on the server
     '''    
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -55,7 +55,7 @@ def port(url, port):
     
 def visit(url):
     '''
-        @var url: The url to resolve
+        @param url: The url to resolve
         @summary: Visits the url and gets the information about it
         @return: (status code, content type, final url) 
     '''
@@ -80,7 +80,7 @@ def visit(url):
  
 def title(url, only_title=False):
     '''
-        @var url: The url to resolve
+        @param url: The url to resolve
         @summary: Fetches the title of an url 
     '''
     status, ctype, url = visit(url)
@@ -99,7 +99,7 @@ def title(url, only_title=False):
                     if only_title:      
                         return 'Title: %s' % htmlx.unescape(''.join(soup.find('title').findAll(text=True)))
                     else:
-                        return '%s : url %s' % (htmlx.unescape(''.join(soup.find('title').findAll(text=True))), min_url(url))
+                        return '%s : [%s]' % (htmlx.unescape(''.join(soup.find('title').findAll(text=True))), min_url(url))
                 else:                    
                     return 'Title not available for content type %s : url %s' % (ctype, min_url(url))
             except Exception:
@@ -110,7 +110,7 @@ def title(url, only_title=False):
 
 def content_type(url):
     '''
-        @var url: The url to resolve
+        @param url: The url to resolve
         @summary: Fetches the content type of an url 
     '''
     status, ctype, url = visit(url)
@@ -120,13 +120,13 @@ def content_type(url):
         if status == 302:
             return 'Redirection loop detected for url %s' % url        
         elif status == 200:
-            return 'Content type %s : url %s' % (ctype, url)
+            return 'Content type %s : [%s]' % (ctype, min_url(url))
         else:
-            return 'Status Code %s : url %s' % (status, url)
+            return 'Status Code %s : [%s]' % (status, min_url(url))
 
 def description(url):
     '''
-        @var url: The url to resolve
+        @param url: The url to resolve
         @summary: Fetches the meta-description of an url 
     '''
     status, ctype, url = visit(url)
@@ -143,9 +143,9 @@ def description(url):
                     response.close()
                     soup = BeautifulSoup(page)
                     desc = soup.find('meta', {'name': re.compile('description', re.I)})['content']                    
-                    return 'Description %s : url %s' % (htmlx.unescape(desc), url)
+                    return 'Description %s : [%s]' % (htmlx.unescape(desc), min_url(url))
                 else:
-                    return 'Preview not available for content type %s : url %s' % (ctype, url)
+                    return 'Preview not available for content type %s : [%s]' % (ctype, min_url(url))
             except Exception:
                 Log.error()
                 return None
@@ -154,7 +154,7 @@ def description(url):
 
 def googleshort(url):
     '''
-        @var url: The url to shorten
+        @param url: The url to shorten
         @summary: Shortens the url to its the goo.gl url 
     '''    
     try:
@@ -170,7 +170,7 @@ def googleshort(url):
 
 def googleexpand(url):
     '''
-        @var url: The url to shorten
+        @param url: The url to shorten
         @summary: Gets the full url of a goo.gl url 
     '''
     try:        

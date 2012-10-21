@@ -4,6 +4,7 @@ Created on Jun 30, 2012
 @author: Nisheeth
 '''
 import sqlite3
+import os
 
 class SqliteDb(object):
     '''
@@ -13,8 +14,14 @@ class SqliteDb(object):
     def __init__(self, dbname=None):
         if dbname is None:
             dbname = 'qirc.db'
+        
+        create = not os.path.exists(dbname)
+            
         self._connection = sqlite3.connect(dbname, check_same_thread=False)
         self._cursor = self._connection.cursor()
+        
+        if create:
+            self.create()
     
     def reset_cursor(self):        
         self._cursor.close()
@@ -45,5 +52,21 @@ class SqliteDb(object):
                 UNIQUE(nick, ident, host)
             )""")
         
+        self._cursor.execute("""CREATE TABLE aliases(
+                uid integer NOT NULL,                
+                nick text NOT NULL, 
+                ident text NOT NULL, 
+                host text NOT NULL,
+                num_joins integer NOT NULL DEFAULT 1,
+                timestamp datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY(uid) REFERENCES users(id),
+                UNIQUE(uid, nick, ident, host)
+            )""")
+        
     def clear(self):
+        self.update_query('DELETE FROM aliases WHERE 1',())
         self.update_query('DELETE FROM users WHERE 1',())
+        
+    def drop(self):
+        self.update_query('DROP TABLE aliases',())
+        self.update_query('DROP TABLE users',())

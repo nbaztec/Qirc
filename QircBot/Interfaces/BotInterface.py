@@ -10,15 +10,16 @@ class BaseInterface(object):
     '''
     def __init__(self, bot):
         '''
-            @var say: An output function to print the regular messages
-            @var notice: An output function to print the whisper messages
-            @var action: An output function to print the self actions
+            @param say: An output function to print the regular messages
+            @param notice: An output function to print the whisper messages
+            @param action: An output function to print the self actions
         '''
         self.params = bot.params
-        pass
+        self.userlist = bot.current_userlist
+        self.request_names = bot.request_userlist
     
     @property
-    def botnick(self):
+    def nick(self):
         return self.params['nick']
     
     @property
@@ -27,6 +28,10 @@ class BaseInterface(object):
             return self.params['chan'][0]
         else:
             return ''
+        
+    @property
+    def names(self):        
+        return self.userlist()
 
 class VerbalInterface(BaseInterface):
     '''
@@ -34,7 +39,7 @@ class VerbalInterface(BaseInterface):
     '''
     def __init__(self, bot):
         '''
-            @var bot: An instance of QircBot
+            @param bot: An instance of QircBot
         '''
         BaseInterface.__init__(self, bot)
         self.say = bot.say
@@ -42,7 +47,13 @@ class VerbalInterface(BaseInterface):
         self.notice = bot.notice
         self.action = bot.action
         self.send_multiline = bot.send_multiline        
-        self.has_status = bot.get_status_flag
+        self.has_status = bot.get_status
+        self.has_flag = bot.get_flag
+        self.db = bot.get_sqlite_db()
+    
+    @property
+    def sqlite_db(self):
+        return self.db
                     
 class AuthorityInterface(BaseInterface):
     '''
@@ -50,14 +61,14 @@ class AuthorityInterface(BaseInterface):
     '''    
     def __init__(self, bot):
         '''
-            @var bot: An instance of QircBot
+            @param bot: An instance of QircBot
         '''
         self.kick = bot.kick
         self.ban = bot.ban
         self.unban = bot.unban
-        self.kickban = self.arma = bot.arma
-        self.arma_recover = bot.arma_recover
-        self.status = bot.status_flag  
+        self.kickban = self.arma = bot.kickban
+        self.status = bot.set_status
+        self.flag = bot.set_flags
         
 class EnforcerInterface(VerbalInterface, AuthorityInterface):
     '''
@@ -65,7 +76,7 @@ class EnforcerInterface(VerbalInterface, AuthorityInterface):
     ''' 
     def __init__(self, bot):
         '''
-            @var bot: An instance of QircBot
+            @param bot: An instance of QircBot
         '''
         VerbalInterface.__init__(self, bot)
         AuthorityInterface.__init__(self, bot)
@@ -78,14 +89,13 @@ class PrivilegedInterface(EnforcerInterface):
     ''' 
     def __init__(self, bot):
         '''
-            @var bot: An instance of QircBot
+            @param bot: An instance of QircBot
         '''
         EnforcerInterface.__init__(self, bot) 
-        self.armageddon = bot.armageddon
         self.join = bot.join
         self.part = bot.part
         self.disconnect = bot.disconnect
-        self.nick = bot.nick
+        self.change_nick = bot.nick
         self.ghost = bot.ghost
         self.identify = bot.identify
         self.role_power = bot.role_power
@@ -98,7 +108,10 @@ class PrivilegedInterface(EnforcerInterface):
         self.user_auth = bot.user_auth
         self.user_list = bot.user_list        
         self.module = bot.get_module
-        self.logger = bot._logger
+        self.module_keys = bot.get_module_keys
+        self.reload_extensions = bot.reload_extensions        
+        self.reload_commands = bot.reload_commands
+        self.save_state = bot.save_state
         
 class CompleteInterface(PrivilegedInterface):
     '''
@@ -106,7 +119,7 @@ class CompleteInterface(PrivilegedInterface):
     ''' 
     def __init__(self, bot):
         '''
-            @var bot: An instance of QircBot
+            @param bot: An instance of QircBot
         '''
         PrivilegedInterface.__init__(self, bot)   
         self.close = bot.close

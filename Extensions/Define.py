@@ -18,8 +18,8 @@ appid = {
 
 def googledefine(query, num=1):    
     '''
-        @var query: Query for searching
-        @var num: Return the (n)th result
+        @param query: Query for searching
+        @param num: Return the (n)th result
         @summary: Performs a Google search and returns the first result
         @attention: Google's description requires unescaping twice
     '''  
@@ -38,8 +38,8 @@ def googledefine(query, num=1):
 
 def urbandefine(term, num=1):    
     '''
-        @var term: Term for searching
-        @var num: Return the (n)th result
+        @param term: Term for searching
+        @param num: Return the (n)th result
         @summary: Performs a urban dictionary search and returns the first result
     '''  
     try:       
@@ -60,8 +60,8 @@ def urbandefine(term, num=1):
     
 def dictionary(term, num=1):
     '''
-        @var term: Term for searching
-        @var num: Return the (n)th result
+        @param term: Term for searching
+        @param num: Return the (n)th result
         @summary: Performs a abbreviations.com dictionary search and returns the first result
     '''  
     try:              
@@ -82,8 +82,8 @@ def dictionary(term, num=1):
 
 def synonyms(term, num=1):
     '''
-        @var term: Term for searching
-        @var num: Return the (n)th result
+        @param term: Term for searching
+        @param num: Return the (n)th result
         @summary: Performs a abbreviations.com synonym search and returns the results
     '''  
     try:              
@@ -102,16 +102,16 @@ def synonyms(term, num=1):
 
 #def antonym(term, num=1):
 #    '''
-#        @var term: Term for searching
-#        @var num: Return the (n)th result
+#        @param term: Term for searching
+#        @param num: Return the (n)th result
 #        @summary: Performs a abbreviations.com dictionary search and returns the first result
 #    '''  
 #    pass
 
 def quote(term, search=False, author=False, num=1):
     '''
-        @var term: Term for searching
-        @var num: Return the (n)th result
+        @param term: Term for searching
+        @param num: Return the (n)th result
         @summary: Returns a quote from abbreviations.com
     '''      
     try:

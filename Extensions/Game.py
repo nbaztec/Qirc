@@ -18,8 +18,8 @@ class Werewolf(object):
 
     def __init__(self, callback, pm):
         '''
-            @var callback: The callback to the say function
-            @var pm      : The callback to the notice/pm function            
+            @param callback: The callback to the say function
+            @param pm      : The callback to the notice/pm function            
         '''
         self.callback = callback   
         self.pm = pm     
@@ -41,7 +41,7 @@ class Werewolf(object):
       
     def join(self, user):
         '''
-            @var user: The player's name
+            @param user: The player's name
         '''
         if self.is_joining and user not in self.users:            
             self.users[user] = 0            # 0: Human, 1: Wolf
@@ -84,8 +84,8 @@ class Werewolf(object):
               
     def lynch(self, user, vote):     
         '''
-            @var user: The name of the player
-            @var vote: The name of the suspected player
+            @param user: The name of the player
+            @param vote: The name of the suspected player
             @summary: Registers votes of players
         '''           
         users = self.users.keys()                       

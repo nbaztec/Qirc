@@ -23,9 +23,9 @@ class ThreadQueue(object):
     
     def put(self, func, args=(), kwargs={}):
         '''
-            @var func: The function
-            @var args: The arguments
-            @var kwargs: The keyworded arguments 
+            @param func: The function
+            @param args: The arguments
+            @param kwargs: The keyworded arguments 
         '''
         self._queue.put((func, args, kwargs))
         self._count += 1

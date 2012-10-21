@@ -20,7 +20,7 @@ def to_celcius(f):
 
 def google_weather(place): 
     '''
-        @var term: Term for searching
+        @param term: Term for searching
         @summary: Performs a urban dictionary search and returns the first result
     '''     
     try:
@@ -36,7 +36,7 @@ def google_weather(place):
     
 def google_forecast(place, num=3): 
     '''
-        @var term: Term for searching
+        @param term: Term for searching
         @summary: Performs a urban dictionary search and returns the first result
     '''     
     try:
@@ -55,7 +55,7 @@ def google_forecast(place, num=3):
     
 def weather(place): 
     '''
-        @var term: Term for searching
+        @param term: Term for searching
         @summary: Performs a urban dictionary search and returns the first result
     '''     
     try:
@@ -64,9 +64,7 @@ def weather(place):
         response.close()
         soup = BeautifulSoup(page)
         current = soup.find('current_condition')
-        query = soup.find('request')
-        #print current
-        #print query
+        query = soup.find('request')        
         return ('%s (%s): %s at %sC, %s%% humidity, %skmph winds' % (''.join(query.find('query').findAll(text=True)), 
                                                                 ''.join(current.find('localobsdatetime').findAll(text=True)), 
                                                                 ''.join(current.find('weatherdesc').findAll(text=True)).strip(), 
@@ -79,7 +77,7 @@ def weather(place):
     
 def forecast(place, num=3): 
     '''
-        @var term: Term for searching
+        @param term: Term for searching
         @summary: Performs a urban dictionary search and returns the first result
     '''     
     try:
@@ -88,8 +86,7 @@ def forecast(place, num=3):
         response.close()
         soup = BeautifulSoup(page)
         forecasts = soup.findAll('weather')
-        query = soup.find('request')
-        #print current        
+        query = soup.find('request')        
         r = []
         for f in forecasts[:num]:           
             r.append('%s on %s [%sC-%sC], %skmph winds' % (''.join(f.find('weatherdesc').findAll(text=True)).strip(), ''.join(f.find('date').findAll(text=True)), 

@@ -18,9 +18,9 @@ appid = {
 
 def wiki(word, num=1, single=False):
     '''
-        @var word: Word to search for
-        @var num: Get the nth result
-        @var single: Get only the title        
+        @param word: Word to search for
+        @param num: Get the nth result
+        @param single: Get only the title        
         @summary: Searches for a word on Wikipedia and returns an abstract
     '''
     try:        
@@ -34,16 +34,16 @@ def wiki(word, num=1, single=False):
         else:
             desc = ''.join(item_1.find('description').find(text=True))
         url = ''.join(item_1.find('url').find(text=True))        
-        return ("%s, %s" % (url, htmlx.unescape(desc.replace('\n', ' ')))).encode('utf-8')
+        return ("%s : %s" % (url, htmlx.unescape(desc.replace('\n', ' ')))).encode('utf-8')
     except Exception:
         Log.error()
         return None            
         
 def google(query, num=1, single=False):    
     '''
-        @var query: Query for searching
-        @var num: Get the nth result
-        @var single: Get only the title
+        @param query: Query for searching
+        @param num: Get the nth result
+        @param single: Get only the title
         @summary: Performs a Google search and returns the first result
         @attention: Google's description requires unescaping twice
     '''  
@@ -58,16 +58,16 @@ def google(query, num=1, single=False):
             desc = htmlx.unescape(htmlx.unescape(re.sub(r'&lt;[^&]+&gt;','',item_1.find('title').find(text=True))))
         else:
             desc = htmlx.unescape(htmlx.unescape(re.sub(r'&lt;[^&]+&gt;','',item_1.find('summary').find(text=True)))) 
-        return ("%s, %s" % (url, desc)).encode('utf-8')
+        return ("%s : %s" % (url, desc)).encode('utf-8')
     except Exception:
         Log.error()
         return None
 
 def googleimage(query, num=1, single=False):    
     '''
-        @var query: Query for searching
-        @var num: Get the nth result
-        @var single: Get only the title 
+        @param query: Query for searching
+        @param num: Get the nth result
+        @param single: Get only the title 
         @summary: Performs a Google search on thinkdigit forum and returns the result
     '''    
     try:        
@@ -81,44 +81,44 @@ def googleimage(query, num=1, single=False):
             desc = htmlx.unescape(htmlx.unescape(re.sub(r'&lt;[^&]+&gt;','',item_1.find('title').find(text=True))))
         else:
             desc = htmlx.unescape(htmlx.unescape(re.sub(r'&lt;[^&]+&gt;','',item_1.find('summary').find(text=True)))) 
-        return ("%s, %s" % (url, desc)).encode('utf-8')
+        return ("%s : %s" % (url, desc)).encode('utf-8')
     except Exception:
         Log.error()
         return None
         
 def tdf(query, num=1, single=False):    
     '''
-        @var query: Query for searching
-        @var num: Get the nth result
-        @var single: Get only the title 
+        @param query: Query for searching
+        @param num: Get the nth result
+        @param single: Get only the title 
         @summary: Performs a Google search on thinkdigit forum and returns the result
     '''  
     return customsearch(query, 'thinkdigit.com/forum/', num, single)
 
 def youtube(query, num=1, single=False):    
     '''
-        @var query: Query for searching
-        @var num: Get the nth result
-        @var single: Get only the title 
+        @param query: Query for searching
+        @param num: Get the nth result
+        @param single: Get only the title 
         @summary: Performs a Google search on thinkdigit forum and returns the result
     '''  
     return customsearch(query, 'youtube.com', num, single)
 
 def imdb(query, num=1, single=False):    
     '''
-        @var query: Query for searching
-        @var num: Get the nth result
-        @var single: Get only the title 
+        @param query: Query for searching
+        @param num: Get the nth result
+        @param single: Get only the title 
         @summary: Performs a Google search on thinkdigit forum and returns the result
     '''  
     return customsearch(query, 'imdb.com', num, single)
 
 def customsearch(query, site, num=1, single=False):    
     '''
-        @var query: Query for searching
-        @var site : The site to search
-        @var num: Get the nth result
-        @var single: Get only the title        
+        @param query: Query for searching
+        @param site : The site to search
+        @param num: Get the nth result
+        @param single: Get only the title        
         @summary: Performs a Google search on a site and returns the nth result
     '''  
     try:        
@@ -130,7 +130,7 @@ def customsearch(query, site, num=1, single=False):
         url =  ''.join(item_1.find('id').find(text=True))
         title = htmlx.unescape(htmlx.unescape(re.sub(r'&lt;[^&]+&gt;','',item_1.find('title').find(text=True))))   
         if not single:         
-            desc = ", " + htmlx.unescape(htmlx.unescape(re.sub(r'&lt;[^&]+&gt;','',item_1.find('summary').find(text=True))))
+            desc = " : " + htmlx.unescape(htmlx.unescape(re.sub(r'&lt;[^&]+&gt;','',item_1.find('summary').find(text=True))))
         else:
             desc = ''
         return ("%s : %s%s" % (title, url, desc)).encode('utf-8')
@@ -140,7 +140,7 @@ def customsearch(query, site, num=1, single=False):
     
 def translate(msg):    
     '''
-        @var msg: Message to translate
+        @param msg: Message to translate
         @summary: Translates a query into destination language using Microsoft Translate
         @attention: TODO
     '''  

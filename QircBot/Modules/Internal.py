@@ -3,21 +3,27 @@ Created on Jul 30, 2012
 
 @author: Nisheeth
 '''
-from Module import BaseToggleModule, ModuleResult
+from QircBot.Interfaces.BotInterface import EnforcerInterface
+from Module import BaseDynamicExtension, ModuleResult
 from Util.SimpleArgumentParser import SimpleArgumentParser
-from Extensions import Search, Calc, Define, Weather, Locate, Url, Roll
-from Extensions.Vote import VoteMaster
-from Extensions.User import Tell, Remind, Seen
-from Extensions.Game import Werewolf
-from Extensions.AI import PseudoIntelligence, CleverBot
+from Extensions import Search, Calc, Define, Weather, Locate, Url, Roll, User, Vote, Game, AI
+from Util import Chronograph
 from Util import htmlx
+
+from datetime import datetime
 import re
 
-class SearchModule(BaseToggleModule):
+
+class SearchModule(BaseDynamicExtension):
     '''
-        Module for performing searches
-    '''
+        Extension for performing searches
+    '''        
         
+    def build_meta(self, metadata):
+        metadata.key = "search"
+        metadata.aliases = ["search", "s", "g"]
+        metadata.prefixes = ["!"]
+                
     def build_parser(self):
         parser = SimpleArgumentParser(prog="!search")
         parser.add_argument("-p", "--private", action="store_true", dest="private", default=False, help="Get results in private")
@@ -33,6 +39,9 @@ class SearchModule(BaseToggleModule):
         group.add_argument("-c", "--custom", dest="custom", default=None, help="Search on a custom site")
         parser.add_argument("args", nargs="+", help="Search query", metavar="query")        
         return parser
+    
+    def reload(self):
+        reload(Search)
         
     def output(self, nick, host, auth, powers, options):              
         args = ' '.join(options.args)                
@@ -58,14 +67,18 @@ class SearchModule(BaseToggleModule):
             if options.private:
                 self._bot.notice(nick, r)
             else:
-                return ModuleResult('%s, %s' % (r, nick))   
+                return ModuleResult('%s , %s' % (r, nick))      # Space introduced because some clients use comma as URL-part as per RFC3986    
         
 
-class CalculationModule(BaseToggleModule):
+class CalculationModule(BaseDynamicExtension):
     '''
-        Module for performing calculations
+        Extension for performing calculations
     '''
-    
+    def build_meta(self, metadata):
+        metadata.key = "calc"
+        metadata.aliases = ["calc", "c"]
+        metadata.prefixes = ["!"]
+        
     def build_parser(self):
         parser = SimpleArgumentParser(prog="!calc")
         parser.add_argument("-p", "--private", action="store_true", dest="private", default=False, help="Get results in private")
@@ -74,6 +87,9 @@ class CalculationModule(BaseToggleModule):
         group.add_argument("-g", "--google", action="store_true", dest="google", default=False, help="Calculate using google calc")
         parser.add_argument("args", nargs="+", help="Calculation to perform", metavar="calculation")        
         return parser
+    
+    def reload(self):
+        reload(Calc)
         
     def output(self, nick, host, auth, powers, options):              
         args = ' '.join(options.args)
@@ -90,11 +106,15 @@ class CalculationModule(BaseToggleModule):
                 return ModuleResult('%s, %s' % (r, nick))
         
 
-class DefinitionModule(BaseToggleModule):
+class DefinitionModule(BaseDynamicExtension):
     '''
-        Module for performing word operations
+        Extension for performing word operations
     '''
-    
+    def build_meta(self, metadata):
+        metadata.key = "define"
+        metadata.aliases = ["urban", "d"]
+        metadata.prefixes = ["!"]
+        
     def build_parser(self):
         parser = SimpleArgumentParser(prog="!define")
         parser.add_argument("-p", "--private", action="store_true", dest="private", default=False, help="Get results in private")
@@ -107,6 +127,9 @@ class DefinitionModule(BaseToggleModule):
         #group.add_argument("-e", "--etymology", action="store_true", dest="etymology", default=False, help="Get origin of word")
         parser.add_argument("args", nargs="+", help="Query term", metavar="term")
         return parser
+    
+    def reload(self):
+        reload(Define)
         
     def output(self, nick, host, auth, powers, options):              
         args = ' '.join(options.args)                     
@@ -128,11 +151,15 @@ class DefinitionModule(BaseToggleModule):
             else:
                 return ModuleResult('%s, %s' % (r.replace('\r', ' '), nick))
             
-class QuoteModule(BaseToggleModule):
+class QuoteModule(BaseDynamicExtension):
     '''
-        Module for performing word operations
+        Extension for performing word operations
     '''
-    
+    def build_meta(self, metadata):
+        metadata.key = "quote"
+        metadata.aliases = ["quote", "q"]
+        metadata.prefixes = ["!"]
+        
     def build_parser(self):
         parser = SimpleArgumentParser(prog="!quote")
         parser.add_argument("-p", "--private", action="store_true", dest="private", default=False, help="Get results in private")
@@ -142,6 +169,9 @@ class QuoteModule(BaseToggleModule):
         group.add_argument("-a", "--author", dest="author", nargs="+", default=None, help="Search a quote by the author", metavar="AUTHOR")
         group.add_argument("-s", "--search", dest="search", nargs="+", default=None, help="Search a quote by contents", metavar="TERM")        
         return parser
+    
+    def reload(self):
+        reload(Define)
         
     def output(self, nick, host, auth, powers, options):
         r = None                                          
@@ -157,11 +187,15 @@ class QuoteModule(BaseToggleModule):
             else:
                 return ModuleResult('%s' % r.replace('\r', ' '))
         
-class WeatherModule(BaseToggleModule):
+class WeatherModule(BaseDynamicExtension):
     '''
-        Module for performing weather operations
+        Extension for performing weather operations
     '''
-    
+    def build_meta(self, metadata):
+        metadata.key = "weather"
+        metadata.aliases = ["weather", "w"]
+        metadata.prefixes = ["!"]
+        
     def build_parser(self):
         parser = SimpleArgumentParser(prog="!weather")
         parser.add_argument("-p", "--private", action="store_true", dest="private", default=False, help="Get results in private")
@@ -169,6 +203,9 @@ class WeatherModule(BaseToggleModule):
         parser.add_argument("-d", "--days", type=int, dest="days", choices=[1,2,3], default=3, help="Forecast for N(max 3) days")
         parser.add_argument("args", nargs="+", help="Name of location", metavar="place")
         return parser
+    
+    def reload(self):
+        reload(Weather)
         
     def output(self, nick, host, auth, powers, options):              
         args = ' '.join(options.args)
@@ -182,11 +219,15 @@ class WeatherModule(BaseToggleModule):
             else:
                 return ModuleResult('%s, %s' % (r, nick))
         
-class LocationModule(BaseToggleModule):
+class LocationModule(BaseDynamicExtension):
     '''
-        Module for performing location based operations
+        Extension for performing location based operations
     '''
-    
+    def build_meta(self, metadata):
+        metadata.key = "location"
+        metadata.aliases = ["locate"]
+        metadata.prefixes = ["!"]
+        
     def build_parser(self):
         parser = SimpleArgumentParser(prog="!locate")
         parser.add_argument("-p", "--private", action="store_true", dest="private", default=False, help="Get results in private")
@@ -194,6 +235,9 @@ class LocationModule(BaseToggleModule):
         group.add_argument("-i", "--ip", dest="ip", default=None, help="Locate using IP address", metavar="ABC.DEF.GHI.XYZ")
         group.add_argument("-c", "--coord", dest="coord", default=None, help="Locate using latitude and logitude", metavar="LAT,LONG") 
         return parser
+    
+    def reload(self):
+        reload(Locate)
         
     def output(self, nick, host, auth, powers, options):              
         if options.ip:
@@ -207,12 +251,13 @@ class LocationModule(BaseToggleModule):
             else:
                 return ModuleResult('%s, %s' % (r, nick))
         
-class UrlModule(BaseToggleModule):
+class UrlModule(BaseDynamicExtension):
     '''
-        Module for performing url operations
-    '''
+        Extension for performing url operations
+    '''    
+    
     def __init__(self, interface):
-        BaseToggleModule.__init__(self, interface)
+        super(UrlModule, self).__init__(interface)
         self._last5urls = []
         # Naive url matcher
         #self._regex_url = re.compile(r'\b((?:telnet|ftp|rtsp|https?)://[^/]+[-\w_/?=%&+;#\\@.]*)')
@@ -222,11 +267,22 @@ class UrlModule(BaseToggleModule):
         
         # This one skips delimeters at end
         self._regex_url = re.compile(r"\b(?:telnet|file|[ts]?ftp|ftps?|irc|rtsp|https?)://([\w;:&=+$,%-_.!~*'()]+@)?[-\w.]+(:\d+)?(/[-\w;_.!~*'()%:@&=+$,/]*)?(\?[-\w;/?:@&=+$,_.!~*'()%]+)?(\#[-\w;/?:@&=+$,_.!~*'()%]+)?[\w/]")
+        
+    def build_meta(self, metadata):
+        metadata.key = "url"
+        metadata.aliases = ["url"]
+        metadata.prefixes = ["!"]
+        metadata.listeners = ["msg"]
+        
+    def event(self, key, channel, user, args):
+        if key == "msg":            
+            self.append_if_url(args)                       # Check for URL
     
     def build_parser(self):
         parser = SimpleArgumentParser(prog="!url", prefix_chars="+-")
         parser.add_argument("-p", "--private", action="store_true", dest="private", default=False, help="Get results in private")
-        group = parser.add_mutually_exclusive_group()        
+        group = parser.add_mutually_exclusive_group()
+        group.add_argument("-l", "--list", action="store_true", dest="list", default=False, help="Print the url")        
         group.add_argument("-d", "--dns", action="store_true", dest="dns", default=True, help="Perform DNS lookup on an url [Default]")
         group.add_argument("-t", "--title", action="store_true", dest="title", default=False, help="Fetch the url title")
         group.add_argument("-v", "--preview", action="store_true", dest="preview", default=False, help="Get a sneak peak into the page")
@@ -236,6 +292,9 @@ class UrlModule(BaseToggleModule):
         group.add_argument("-o", "--port", type=int, dest="port", help="Check if the port is open on a server", metavar="PORT")
         parser.add_argument("args", help="URL or a relative reference", metavar="[url|%{1-5}]")        
         return parser
+    
+    def reload(self):
+        reload(Url)
         
     def output(self, nick, host, auth, powers, options):              
         args = options.args                            
@@ -249,7 +308,9 @@ class UrlModule(BaseToggleModule):
         else:            
             if args.find('://', 0, 10) == -1:
                 args = 'http://' + args
-            if options.title:
+            if options.list:
+                r = args
+            elif options.title:
                 r = Url.title(args)
             elif options.content:
                 r = Url.content_type(args)
@@ -271,36 +332,65 @@ class UrlModule(BaseToggleModule):
         
     def append_if_url(self, msg):        
         '''
-            @var msg: 
+            @param msg: 
         '''
         m = self._regex_url.search(msg)
         if m is not None:
-            if len(self._last5urls) == 5:
+            sz = len(self._last5urls)
+            if sz == 5:
                 self._last5urls.pop()
-            self._last5urls.insert(0, m.group(0))
-            if self._bot.has_status('url'):
-                r = Url.title(m.group(0), only_title=True)
-                if r:
-                    self._bot.say(r)
+            if sz == 0 or (sz and self._last5urls[0] != m.group(0)):
+                self._last5urls.insert(0, m.group(0))
+                if self._bot.has_status('url'):
+                    r = Url.title(m.group(0), only_title=True)
+                    if r:
+                        self._bot.say(r)
         
-    def get_state(self):    
-        d =  super(UrlModule, self).get_state()
+    def get_state(self):
+        d = super(self.__class__, self).get_state()
         d.update({ 'urls' : self._last5urls})        
         return d
     
     def set_state(self, state):
         self._last5urls = state['urls']
-        super(UrlModule, self).set_state(state)
+        super(self.__class__, self).set_state(state)
         
-class UserModule(BaseToggleModule):
+class UserModule(BaseDynamicExtension):
     '''
-        Module for performing word operations
-    '''
-    def __init__(self, interface, sqlite_db):
-        BaseToggleModule.__init__(self, interface)
-        self._tell = Tell()
-        self._remind = Remind(self._bot.say)
-        self._seen = Seen(sqlite_db)
+        Extension for performing word operations
+    '''    
+    
+    def __init__(self, bot_state):
+        super(UserModule, self).__init__(bot_state)
+        self._tell = User.Tell()
+        self._remind = User.Remind(self._bot.say)
+        self._seen = User.Seen(self._bot.sqlite_db)
+    
+    def build_meta(self, metadata):
+        metadata.key = "user"
+        metadata.aliases = ["user"]
+        metadata.prefixes = ["!"]
+        metadata.interface = EnforcerInterface
+        metadata.listeners = ["msg", "userlist", "join", "kick", "part", "quit", "exit"]
+        
+    def event(self, key, channel, user, args):
+        if key == "msg":
+            messages = self.tell_get(user.nick)
+            if messages:
+                for sender, msg, timestamp in messages:
+                    self._bot.say('%s, %s said (%s ago) "%s"' % (user.nick, sender, Chronograph.time_ago(timestamp), msg))
+        elif key == "join":            
+            self.seen_join(user.nick, user.ident, user.host)
+        elif key == "kick":      
+            self.seen_part(user.nick, user.ident, user.host, "Kicked by %s, Reason: %s" % (args[0], args[1]))
+        elif key == "part":            
+            self.seen_part(user.nick, user.ident, user.host, args)
+        elif key == "quit":            
+            self.seen_part(user.nick, user.ident, user.host, args)
+        elif key == "userlist":            
+            self.seen_init(args)
+        elif key == "exit" or key == "reload":
+            self.remind_dispose()
     
     def build_parser(self):
         parser = SimpleArgumentParser(prog="!user")
@@ -312,6 +402,9 @@ class UserModule(BaseToggleModule):
         group.add_argument("-r", "--remind", dest="remind", help="Set a reminder for self", metavar="XX(d,h,m,s)")
         parser.add_argument("args", nargs="+", help="Message", metavar="MESSAGE")
         return parser
+    
+    def reload(self):
+        reload(User)
         
     def output(self, nick, host, auth, powers, options):
         if auth == 0 and options.clear:            
@@ -332,16 +425,30 @@ class UserModule(BaseToggleModule):
                 arg = ' '.join(options.args)      
                 self._remind.remind(nick, options.remind, arg)
                 self._bot.notice(nick, 'Reminder has been set')
-            except Remind.RemindFormatError:
+            except User.Remind.RemindFormatError:
                 self._bot.notice(nick, 'Invalid time format. Example 20s, 2m, 3h...')
-            except Remind.RemindValueError, e:
+            except User.Remind.RemindValueError, e:
                 self._bot.notice(nick, e.message)
         elif options.seen:                  
             for usr in options.args:
-                if usr == self._bot.botnick:
-                    r = "Me? Surely you ca't be serious"
-                else:
-                    r = self._seen.seen(usr)
+                if usr == self._bot.nick:
+                    r = "Me? Surely you can't be serious"
+                else:                    
+                    nicks, req, timestamp, quit_reason = self._seen.seen(usr)
+                    if nicks is None:
+                        r = "No I haven't seen %s lately" % usr 
+                    else:
+                        if quit_reason is None:
+                            if self._bot.names.has_key(usr):
+                                if str(self._bot.names[usr]) != req:
+                                    r = '%s is impersonating %s [%s] at the moment' % (self._bot.names[usr], usr, ', '.join(nicks))
+                                else:
+                                    r = '%s [%s] is right here' % (usr, ', '.join(nicks))
+                            else:
+                                r = '%s [%s] was last seen joining %s ago, but he\'s not here now' % (usr, ', '.join(nicks), Chronograph.time_ago(datetime.strptime(timestamp, '%Y-%m-%d %H:%M:%S')))
+                        else:                         
+                            r = '%s [%s] was last seen: %s ago (%s)' % (usr, ', '.join(nicks), Chronograph.time_ago(datetime.strptime(timestamp, '%Y-%m-%d %H:%M:%S')), quit_reason)
+                    
                 if r:
                     if options.private:
                         self._bot.notice(nick, r)
@@ -351,17 +458,20 @@ class UserModule(BaseToggleModule):
     def tell_get(self, nick):
         return self._tell.get(nick)
     
+    def seen_init(self, names):
+        self._seen.init(names)
+        
     def seen_join(self, nick, ident, host):
         self._seen.join(nick, ident, host)
         
-    def seen_part(self, nick, reason):
-        self._seen.part(nick, reason)
+    def seen_part(self, nick, ident, host, reason):
+        self._seen.part(nick, ident, host, reason)
         
     def remind_dispose(self):
         self._remind.dispose()
         
     def get_state(self):
-        d = super(UserModule, self).get_state()        
+        d = super(self.__class__, self).get_state()        
         d.update({    'tell' : self._tell.get_state(),
                     'remind': self._remind.get_state()
                 })
@@ -370,16 +480,31 @@ class UserModule(BaseToggleModule):
     def set_state(self, state):
         self._tell.set_state(state['tell'])
         self._remind.set_state(state['remind'])
-        super(UserModule, self).set_state(state)
+        super(self.__class__, self).set_state(state)
 
-class VoteModule(BaseToggleModule):
+class VoteModule(BaseDynamicExtension):
     '''
-        Module for performing voting
+        Extension for performing voting
     '''
-    def __init__(self, interface):
-        BaseToggleModule.__init__(self, interface)
-        self._vote = VoteMaster()
     
+    def __init__(self, interface):
+        super(VoteModule, self).__init__(interface)
+        self._vote = Vote.VoteMaster()
+        
+    def build_meta(self, metadata):
+        metadata.key = "vote"
+        metadata.aliases = ["vote"]
+        metadata.prefixes = ["!"]
+        metadata.interface = EnforcerInterface
+        metadata.listeners = ["msg"]
+    
+    def event(self, key, channel, user, args):
+        if key == "msg":            
+            if self.is_voting:
+                if len(args) == 1:
+                    self.register_vote(user.nick, user.host, args)
+                    return True     # Supress this event
+            
     def build_parser(self):
         parser = SimpleArgumentParser(prog="!vote")
         group = parser.add_mutually_exclusive_group() 
@@ -421,8 +546,10 @@ class VoteModule(BaseToggleModule):
                     if (p+n) > 1:
                         vote = p - n
                         if vote > 0:
-                            self._bot.say('The general public (%d) has agreed to bring forth armageddon upon %s' % (p + n, arma_users))                            
-                            self._bot.kickban(arma_users.split())
+                            self._bot.say('The general public (%d) has agreed to bring forth armageddon upon %s' % (p + n, arma_users))
+                            for u in arma_users.split():
+                                if self._bot.names[u]:                            
+                                    self._bot.kickban(u, self._bot.names[u].host, arma_reason)
                         elif vote < 0:
                             self._bot.say('The general public (%d) has disagreed to bring forth armageddon upon %s' % (p + n, arma_users))
                         else:
@@ -448,17 +575,24 @@ class VoteModule(BaseToggleModule):
     def register_vote(self, nick, host, vote):
         self._vote.register_vote(nick, host, vote)
         
-class RollModule(BaseToggleModule):
+class RollModule(BaseDynamicExtension):
     '''
-        Module for performing word operations
+        Extension for performing word operations
     '''
-    
+    def build_meta(self, metadata):
+        metadata.key = "roll"
+        metadata.aliases = ["roll"]
+        metadata.prefixes = ["!"]
+        
     def build_parser(self):
         parser = SimpleArgumentParser(prog="!roll")
         parser.add_argument("-p", "--private", action="store_true", dest="private", default=False, help="Get results in private")
         parser.add_argument("-m", "--min", type=int, dest="min", default=1, help="Minimum range. Default %(default)s", metavar="M")
         parser.add_argument("-n", "--max", type=int, dest="max", default=6, help="Maximum range. Default %(default)s", metavar="N")
         return parser
+        
+    def reload(self):
+        reload(Vote)
         
     def output(self, nick, host, auth, powers, options):              
         if options.min > 0 and options.max > 0 and options.min < options.max:
@@ -472,18 +606,37 @@ class RollModule(BaseToggleModule):
             else:
                 return ModuleResult('%s rolled a %s' % (nick, r))    
         
-class GameModule(BaseToggleModule):
+class GameModule(BaseDynamicExtension):
     '''
-        Module for performing word operations
+        Extension for performing word operations
     '''
-    def __init__(self, interface):
-        BaseToggleModule.__init__(self, interface)
-        self._werewolf = Werewolf(callback=self._bot.say, pm=self._bot.notice)
-        
+    def __init__(self, bot_state):
+        super(GameModule, self).__init__(bot_state)
+        self._werewolf = Game.Werewolf(callback=self._bot.say, pm=self._bot.notice)       
+    
+    def build_meta(self, metadata):
+        metadata.key = "game"
+        metadata.aliases = ["game"]
+        metadata.prefixes = ["!"]
+        metadata.listeners = ["msg"]
+
+    def event(self, key, channel, user, args):
+        if key == "msg":            
+            if self.is_joining:
+                if args == "+":
+                    self.join(user.nick)
+                    return True
+            elif self.is_playing:
+                self.response(user.nick, args)            
+                return True    
+         
     def build_parser(self):
         parser = SimpleArgumentParser(prog="!game")
         parser.add_argument("args", choices=["werewolf"], help="Name of the game")
         return parser
+        
+    def reload(self):
+        reload(Game)
         
     def output(self, nick, host, auth, powers, options):              
         args = ' '.join(options.args)
@@ -511,31 +664,67 @@ class GameModule(BaseToggleModule):
         if m:
             self._werewolf.lynch(nick, m.group(1))
             
-              
-class VerbModule(BaseToggleModule):
+class CleverModule(BaseDynamicExtension):
     '''
-        Module for performing verb related actions
+        Extension for performing word operations
     '''
+    def __init__(self, bot_state):
+        super(CleverModule, self).__init__(bot_state)
+        self._intelli = AI.PseudoIntelligence()    # AI module, Work in development
+        self._cb = AI.CleverBot({'name': self._bot.nick})
+        self.build_matcher()
+                    
+    def build_meta(self, metadata):
+        metadata.key = "cleverbot"
+        metadata.listeners = ["msg", "nick"]
+        
+    def event(self, key, channel, user, args):
+        if key == "msg":            
+            m = self._regex_query.match(args)
+            if m and self.is_enabled():
+                self.reply(user.nick, user.host, user.auth, user.powers, m.group(1)) 
+        elif key == "nick":
+            self.build_matcher()
+            
+    def build_matcher(self):
+        self._regex_query = re.compile(r'^%s[\s,:]+(.+)$' % self._bot.nick)
+        self._regex_verb = re.compile(r'^\s*([\S]+)(?:\s+([\S]+))(?:\s+(.*))?')
+        
+    def reload(self):
+        reload(AI)
+        
+    def reply(self, nick, host, auth, powers, query):                    
+        self.parse_verb(query) or self.parse_pseudo(query, nick) or self.parse_cleverbot(query)
     
-    def __init__(self, interface):
-        BaseToggleModule.__init__(self, interface)
-        self._regex_action = re.compile(r'^\s*([\S]+)(?:\s+([\S]+))(?:\s+(.*))?')        
+    def parse_pseudo(self, query, nick):
+        reply = self._intelli.reply(query, nick)
+        if reply:
+            self._bot.say(reply)                                        
+            return True
+        else:
+            return False
         
-    def build_parser(self):
-        return None
+    def parse_cleverbot(self, query):
+        reply = self._cb.ask(query)
+        if reply:                                                                         
+            reply = htmlx.unescape(reply)
+            self._bot.say(reply)
+            return True
+        else:
+            return False
         
-    def output(self, nick, host, auth, powers, options):           
-        m = self._regex_action.search(options)
+    def parse_verb(self, query):
+        m = self._regex_verb.search(query)
         if m:
-            return self.parse_verb(m.group(1), m.group(2), m.group(3))
-        
-    def parse_verb(self, verb, nick, text):
+            return self._verb(m.group(1), m.group(2), m.group(3))
+            
+    def _verb(self, verb, nick, text):
         '''
-            @var verb: The action text
-            @var nick: The nick part
-            @var text: The text message
+            @param verb: The action text
+            @param nick: The nick part
+            @param text: The text message
             @summary: Parses verbs to present action for the bot 
-        '''                
+        '''       
         if verb in ['dodge', 'give', 'steal', 'take', 'catch', 'arm', 'engage', 'assault', 'launch', 'slit', 'poke', 'strip', 'disarm', 'fire', 'attack', 'chase', 'create', 'make', 'relieve', 'show', 'escort', 'push', 'pull', 'throw', 'feed', 'fuck', 'sell', 'buy', 'oblige', 'demolish', 'destroy']:
             verb += 'es' if verb.endswith(('s', 'z', 'x', 'sh', 'ch'), -2) else 's'            
             if nick is not None:
@@ -546,27 +735,4 @@ class VerbModule(BaseToggleModule):
             self._bot.action('bitchslaps %s' % (nick))       
         else:
             return False 
-        return True
-    
-class CleverModule(BaseToggleModule):
-    '''
-        Module for performing word operations
-    '''
-    def __init__(self, interface, nick):
-        BaseToggleModule.__init__(self, interface)
-        self._intelli = PseudoIntelligence()    # AI module, Work in development                      
-        self._cb = CleverBot({'name': nick})
-                    
-    def build_parser(self):
-        return None
-        
-    def output(self, nick, host, auth, powers, options):                    
-        reply = self._intelli.reply(options, nick)                      # Use AI for replying
-        if not reply:  
-            reply = self._cb.ask(options)
-        if reply:                                                       # If there's some valid reply                  
-            reply = htmlx.unescape(reply)
-            self._bot.say(reply)                                        # Use AI for replying
-            return True
-        else:
-            return False
+        return True 

@@ -7,7 +7,7 @@ from datetime import datetime
 
 def time_ago(timestamp, milliseconds=False, resolution=2):
     '''
-        @var timestamp: The datetime to compare against
+        @param timestamp: The datetime to compare against
         @summary: Returns a string signifying the elapsed time 
     '''
     d = datetime.utcnow() - timestamp  + datetime(1, 1, 1)  # Add dummy date: 1y-1m-1d, to form a datetime object 

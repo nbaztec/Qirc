@@ -1,28 +1,132 @@
 '''
 Created on Jun 7, 2012
+Updated on Oct 16, 2012
 @author: Nisheeth
-@version: 3.0.5 Deadpool
+@version: 4.0.1 Ethereal
 '''
 
-from Modules.Manager import ModuleManager, CommandManager, ExternalManager
-from Modules.Commands import JoinModule, PartModule, QuitModule, KickModule, BanModule, OpModule, SayModule, ArmageddonModule, FlagModule, EnforceModule, UserAuthModule, ModManagerModule
-from Modules.Internal import SearchModule, CalculationModule, DefinitionModule, QuoteModule, WeatherModule, LocationModule, UrlModule, UserModule, VoteModule, RollModule, GameModule, VerbModule, CleverModule
-from Modules import External
-from Interfaces.BotInterface import VerbalInterface, EnforcerInterface, CompleteInterface
+from Modules.Manager import DynamicExtensionManager, DynamicCommandManager
+from Modules import External, Internal, Commands
         
 from QircDatabase import SqliteDb
 from Util.Log import Log
 from Util.ThreadQueue import ThreadQueue
-from Util import Chronograph
+from Util.Common import chunk
 from abc import ABCMeta, abstractmethod
-from threading import Thread, Lock
+from threading import Thread, Lock, Condition
+       
 from os import path
 import random
 import re
 import socket
+import select
 import time
 import cPickle
 import inspect
+
+class User(object):
+        
+    regex_normal = re.compile(r'^([^!]+)!([^@]+)@(.*)$')
+    
+    @classmethod
+    def set_special_regex(cls, regex):
+        cls.regex_special = regex
+        
+    @classmethod
+    def set_normal_regex(cls, regex):
+        cls.regex_normal = regex
+                        
+    def __init__(self, *args, **kwargs):        
+        d = {
+               'masters': None,
+               'simple' : False,
+               'server' : False
+            }
+        d.update(kwargs)
+        
+        if len(args) == 6:            
+            self._nick = args[0]
+            self._ident = args[1]
+            self._host = args[2]
+            self._role = args[3]
+            self._auth = args[4]
+            self._powers = args[5]
+        elif len(args) == 1:
+            self._nick = None
+            self._ident = None
+            self._host = None
+            self._role = None
+            self._auth = None
+            self._powers = None
+            
+            self._input = username = args[0]            
+            masters = d['masters']
+            simple = d['simple']
+            server = d['server']
+            if server:
+                if username:
+                    self._nick = username
+                    self._host = self._ident = ''                
+            elif username: 
+                m = None
+                
+                if not simple and User.regex_special:
+                    m = User.regex_special.search(username)
+                
+                if m is None:
+                    if User.regex_normal:
+                        m = User.regex_normal.search(username)
+                        if m:
+                            self._nick  = m.group(1)
+                            self._ident = m.group(2)
+                            self._host  = m.group(3)
+                else:                        
+                    self._nick  = m.group(1)
+                    self._ident = m.group(2)
+                    self._host  = m.group(3)
+                    
+                    if masters:
+                        role = 'others'            
+                        for k in masters.iterkeys():
+                            if m.group(k):
+                                role = k
+                                break;                                                
+                        
+                        self._role  = role 
+                        self._auth  = masters[role]['auth']
+                        self._powers  = masters[role]['powers']
+        else:
+            raise Exception("Incorrect number of arguments")
+    
+    def __str__(self):
+        if self._nick and self._ident and self._host:
+            return '%s!%s@%s' % (self._nick, self._ident, self._host)
+        return self._input
+    
+    @property
+    def nick(self):
+        return self._nick
+    
+    @property
+    def ident(self):
+        return self._ident
+    
+    @property
+    def host(self):
+        return self._host
+    
+    @property
+    def role(self):
+        return self._role
+    
+    @property
+    def auth(self):
+        return self._auth
+    
+    @property
+    def powers(self):
+        return self._powers
+
 
 class BaseBot(object):
     '''
@@ -34,8 +138,8 @@ class BaseBot(object):
         
     def __init__(self, callback, params=None):
         '''
-            @var callback  : A callback function to be called when bot is successfully registered
-            @var params    : Parameters for the bot,
+            @param callback  : A callback function to be called when bot is successfully registered
+            @param params    : Parameters for the bot,
                              Default:
                                   'host'        : 'irc.freenode.net'
                                   'port'        : 6667
@@ -51,41 +155,37 @@ class BaseBot(object):
               'nick'        : 'QircBot',
               'ident'       : 'QircBot',
               'realname'    : 'QirckyBot',
-              'password'    : 'None',
+              'password'    : None,
               'chan'        : []           
               }
         if params is not None:            
             self.params.update(params)            
         Log.write(self.params)
         
-        self._regexes = {
-                            'name'  :   re.compile(r'^:([^!]+)!([^@]+)@(.*)$'),
-                            'url'   :   re.compile(r'\b((?:telnet|ftp|rtsp|https?)://[^/]+[-\w_/?=%&+;#\\@]*)')                         
-                         }
+        self._regexes = { }
         
         self._sock = socket.socket();
         self._success_callback = callback     
         self._lock = Lock()                     # mutex _lock [unused]                
         self.orig_nick = self.params['nick']    # Store original nick for temp logins        
         
-        BaseBot.reset_flags(self)
+        self._cv_exit = Condition()
+        
+        BaseBot.reset_flags(self)               # Reset bot state
         
     def reset_flags(self, build=True):
         '''
-            @var build: If true, then status_flags are initialized 
+            @param build: If true, then status_flags are initialized 
             @summary: Resets the state flags of the bot 
         '''
         self._retry_timeout = 15                # 15 seconds connection retry                               
-        self._has_quit = False                  # If a QUIT request was sent by the master
+        self._restart_req = self._has_quit = False                  # If a QUIT request was sent by the master
         if build:       
             self._status_flags = {
-                              'hear' : True,
-                              'voice'   : True,
-                              'log' : True,
+                              'hear'    : True,
+                              'voice'   : True,                              
                               'kick'    : True,
                               'ban'     : True,
-                              'arma'    : True,
-                              'talk'    : True,
                               'url'     : False
                           }
      
@@ -106,6 +206,12 @@ class BaseBot(object):
             @summary: Whether a valid quit requested was placed or not
         '''
         return self._has_quit
+    
+    def restart_requested(self):
+        '''
+            @summary: Whether a valid restartrequested was placed or not
+        '''
+        return self._restart_req
                            
     def cleanup(self):
         '''
@@ -117,14 +223,18 @@ class BaseBot(object):
         '''
             @summary: Tries to connect to the IRC Server. Retries after exponential time.
         '''                                
-        try:
-            self._sock.connect((self.params['host'], self.params['port']))            
+        try:            
+            self._sock.connect((self.params['host'], self.params['port']))
+            self._sock.setblocking(0)            
             self._retry_timeout = 15
             return True
         except socket.error, e:
             Log.write('Failed to connect %s Reconnecting in %d seconds' % (e, self._retry_timeout))
             time.sleep(self._retry_timeout)
-            self._retry_timeout *= 1.5                      # Increase retry time after every failure
+            if self._retry_timeout < 180:
+                self._retry_timeout *= 1.5                      # Increase retry time after every failure
+            else:
+                self._retry_timeout = 180                       # Limit retry time to 3 minutes
     
     def register(self):
         '''
@@ -135,24 +245,10 @@ class BaseBot(object):
     
     def send(self, msg):
         '''
-            @var msg: Message to send
+            @param msg: Message to send
             @summary: Send raw message to IRC
         '''
         try:
-            '''
-            now = time.time()
-            if now - self._last_send < 2:
-                self._last_send_count += 1
-            else:
-                self._last_send_count = 0
-            self._last_send = now
-            
-            if self._last_send_count > 2:
-                self._last_send_count = 0
-                print '-----------------------SLEEP--------------------'
-                time.sleep(1)
-            '''            
-                        
             msg = msg[:510]     # Max limit is 512 (2 for CRLF)
             Log.write('Sending ' + msg)
             self._sock.send(msg + "\r\n")
@@ -168,22 +264,23 @@ class BaseBot(object):
         
     def read(self):
         '''
-            @summary: Synchronous reading via polling 
+            @summary: Synchronous reading via selecting 
         '''        
         try:
             self._read_buffer = ''
             run_read = True
             chunk = '+'                             # Initially chunk not empty
-            while run_read:
-                self.last_read = time.time()        # Last read time
-                chunk = self._sock.recv(2048)              
-                if chunk == '':
-                    raise Exception('Nothing received. Connection broken.')
-                else:                                    # If received something
-                    self._read_buffer += chunk                
-                    temp = self._read_buffer.split("\n")
-                    self._read_buffer = temp.pop()            
-                    run_read = self.parse_recv(temp)     # Dispatch message for parsing
+            while run_read and not self.close_requested() and not self.restart_requested():
+                if select.select([self._sock], [], [], 10)[0]:
+                    self.last_read = time.time()        # Last read time
+                    chunk = self._sock.recv(2048)              
+                    if chunk == '':
+                        raise Exception('Nothing received. Connection broken.')
+                    else:                                    # If received something
+                        self._read_buffer += chunk                
+                        temp = self._read_buffer.split("\n")
+                        self._read_buffer = temp.pop()            
+                        run_read = self.parse_recv(temp)     # Dispatch message for parsing
                     
         except Exception:
             Log.error('QircBot.read: ') 
@@ -209,8 +306,7 @@ class BaseBot(object):
                 pass
         self.register()        
         self.begin_read()
-        self.on_connected()
-        
+        self.on_connected()        
     
     def on_bot_terminate(self):
         '''
@@ -227,7 +323,7 @@ class BaseBot(object):
     @abstractmethod
     def parse_recv(self, recv):
         '''
-            @var recv: Message from IRC
+            @param recv: Message from IRC
             @summary: Parses the messages coming from the IRC to take suitable actions
         '''
         pass        
@@ -236,13 +332,13 @@ class BaseBot(object):
 class ActiveBot(BaseBot):
     '''
         ActiveBot allows the bot to perform simple commands and operations.
-        @version: 3.0
+        @version: 4.0
     '''
-       
+    
     def __init__(self, callback, params=None):
         '''
-            @var callback  : A callback function to be called when bot is successfully registered
-            @var params    : Parameters for the bot,
+            @param callback  : A callback function to be called when bot is successfully registered
+            @param params    : Parameters for the bot,
                              Default:
                                   'host'        : 'irc.freenode.net'
                                   'port'        : 6667
@@ -251,15 +347,18 @@ class ActiveBot(BaseBot):
                                   'realname'    : 'QirckyBot'  
                                   'password'    : None                             
         '''
-        #BaseBot.__init__(self, callback, params)
         super(ActiveBot, self).__init__(callback, params)
         ActiveBot.reset_flags(self, False)                 # Initialize flags but do not bubble up, since already set by BaseBot.__init__()
+         
         self._op_actions = ThreadQueue()                   # ThreadQueue for OP functions
         self._multisend_lock = Lock()                      # Thread lock for avoiding floodkicks on send_multiline()
-        
-        from Modules.Commands import LogModule
-        self._logger = LogModule()
-        self._logger.enabled(True)
+        self._cv_userlist = Condition()                    # Condition Variable for requesting userlist                
+    
+    def current_userlist(self):
+        '''
+            @summary: Returns the userlist for the current channel
+        '''
+        return self._names
     
     @property
     def current_channel(self):
@@ -273,12 +372,14 @@ class ActiveBot(BaseBot):
         
     def reset_flags(self, bubble=True):
         '''
-            @var bubble: Whether to reset the flags in the base class
+            @param bubble: Whether to reset the flags in the base class
             @summary: Resets the state flags of the bot 
         '''
+        self._alive = True
         self._joined = False
         self._pong_recv = True
         self._ghost = False
+        self._names = {}
         if bubble:
             BaseBot.reset_flags(self)
         
@@ -286,32 +387,99 @@ class ActiveBot(BaseBot):
         '''
             @summary: Performs any cleanup activity while qutting the bot
         '''        
-        BaseBot.cleanup(self)
-        
+        BaseBot.cleanup(self)    
+    
+    def request_userlist(self):
+        '''
+            @summary: Activates a request for raising `userlist` event
+        '''
+        self._cv_userlist.acquire()
+        self._request_userlist = True
+        self._cv_userlist.notify()
+        self._cv_userlist.release()
+    
+    def userlist_buildup(self):
+        '''
+            @summary: Builds a {nick : username} dict for all the members in current channel at periodic intervals
+        '''                
+        try:            
+            self._cv_userlist.acquire()
+            self._cv_userlist.wait()        # Wait for signal to proceed
+            self._cv_userlist.release()
+            time.sleep(10)                  # Delay 10 seconds to receive NAMES
+        except:
+            pass
+            
+        self._request_userlist = False
+        userlist_pending = userlist_req = False
+        while self._alive and not self.close_requested() and not self.restart_requested():
+            try:                                                
+                userlist_req = False
+                l = []                                                      # Check if any nick doesn't have the username entry
+                for k,v in self._names.items():
+                    if v is None:
+                        l.append(k)
+                if len(l):                                                  # Request hostnames of empty nicks
+                    userlist_req = userlist_pending = True
+                    for n in chunk(l, 5):
+                        self.userhosts(' '.join(n))                    
+                #else:                    
+                    Log.write('Userlist: %s' % self._names, 'D')
+                
+                self._cv_userlist.acquire()
+                if userlist_req:                    
+                    if self._request_userlist:
+                        self._cv_userlist.wait(5)                           # Recheck after 5 seconds if list is requested
+                    else:
+                        self._cv_userlist.wait(10)                          # Recheck after 30 seconds otherwise
+                elif userlist_pending or self._request_userlist:
+                    self._request_userlist = userlist_pending = False                    
+                    self.on_userlist_complete()                    
+                    self._cv_userlist.wait(60)                              # Sleep for 60 seconds
+                else:                    
+                    self._cv_userlist.wait(60)                              # Sleep for 60 seconds
+                self._cv_userlist.release()                    
+            except Exception, e:
+                Log.error(e)
+                                        
+            
     def server_ping(self):        
         '''
-            @summary: Pings the server every 120 seconds to keep the connection alive
+            @summary: Pings the server every 90 seconds to keep the connection alive
         '''
-        counter = 0
-        while self._pong_recv and not self.close_requested():           # If PONG was received for the previous PING, if not the connection is probably dead            
-            self._pong_recv = False            
-            counter = 6
+        while self._pong_recv and not self.close_requested() and not self.restart_requested():           # If PONG was received for the previous PING, if not the connection is probably dead            
+            self._pong_recv = False
             try:                        
-                time.sleep(45)                                          # PING every 45 seconds
-                self.ping()                                             # Send PING
+                self._cv_exit.acquire()
+                self._cv_exit.wait(60)                                  # PING every 60 seconds
+                self._cv_exit.release()                
+                        
+                if not self.close_requested() and not self.restart_requested():
+                    self.ping()                                         # Send PING                
+                    self._cv_exit.acquire()
+                    self._cv_exit.wait(30)                              # Wait 30 seconds for a PONG
+                    self._cv_exit.release()                 
             except:
                 pass
-            while counter:  
-                time.sleep(3)                                              # 6*20 second PING              
-                counter -= 1                            
-        self.ping()                                             # Send FINAL PING
+        
+        self._alive = False
+        if not self.close_requested() and not self.restart_requested():
+            self._cv_exit.acquire()
+            self._cv_exit.notify_all()
+            self._cv_exit.release()
+        '''
+        try:
+            self.ping()                                                     # Precautionary PING to unblock the socket.recv()
+        except:
+            pass
+        '''
         Log.write('Server Failed to respond to PONG', 'E')
             
     def queue_op_add(self, target, args=(), kwargs={}):
         '''
-            @var target: The function
-            @var args: Arguments to function
-            @var kwargs: Keyworded arguments to function
+            @param target: The function
+            @param args: Arguments to function
+            @param kwargs: Keyworded arguments to function
             @attention: Function name at [0] and arguments after that
             @summary: Adds a item to the queue for processing once the bot is OPed
         '''
@@ -325,12 +493,85 @@ class ActiveBot(BaseBot):
         '''
         self._lock.acquire()
         if self._op_actions.Length:        
-            self._op_actions.process()          # Process
-            self._op_actions.join()             # Block until complete
+            self._op_actions.process()                              # Process
+            self._op_actions.join()                                 # Block until complete
             self.deop(self.current_channel, self.params['nick'])
-            self._flags['o'] = False                            # Precautionary measure
+            self._flags['o'] = False                                # Precautionary measure
         self._lock.release()
             
+    def get_flag(self, key=None):
+        '''
+            @param key: Key of the flag, None if all flags are required
+            @return: Returns flag status else all flags            
+        '''
+        if key is None:
+            return self._flags.items()
+        elif self._flags.has_key(key):            
+            return self._flags[key]
+        else:
+            return False
+    
+    def set_flags(self, key=None, value=None, flag_dict=False):
+        '''
+            @param key: Key to flags
+            @param value: The new value to set, if required 
+            @param flag_dict: If true, then the entire dict is set/returned
+            @return: Returns True if the status is set, else False
+        '''
+        if flag_dict:
+            if value is None:
+                return self._flags
+            else:        
+                self._flags = value
+        else:
+            if key is None:
+                return self._flags.items()
+            else:
+                if value is not None:
+                    self._flags[key] = value
+                    return value
+                elif self._flags.has_key(key):            
+                    return self._flags[key]
+                else:
+                    return False
+        
+    def get_status(self, key=None):
+        '''
+            @param key: Key of the status, None if all statuses are required
+            @return: Returns status else all statuses
+            @note: This is a read-only variant of set_status()
+        '''
+        if key is None:
+            return self._status_flags.items()
+        elif self._status_flags.has_key(key):            
+            return self._status_flags[key]
+        else:
+            return False
+            
+    def set_status(self, key=None, value=None, flag_dict=False):
+        '''
+            @param key: Key to status
+            @param value: The new value to set, if required 
+            @param flag_dict: If true, then the entire dict is set/returned
+            @return: Returns True if the status is set, else False
+        '''
+        if flag_dict:
+            if value is None:
+                return self._status_flags
+            else:        
+                self._status_flags = value
+        else:
+            if key is None:
+                return self._status_flags.items()
+            else:
+                if value is not None:
+                    self._status_flags[key] = value
+                    return value
+                elif self._status_flags.has_key(key):            
+                    return self._status_flags[key]
+                else:
+                    return False
+                
     # Shortcut Functions
     
     def ping(self):
@@ -341,14 +582,14 @@ class ActiveBot(BaseBot):
         
     def join(self, chan, key=''):
         '''
-            @var chan: The channel to join. Example #chan
+            @param chan: The channel to join. Example #chan
             @summary: Sends a JOIN command to join the channel and updates the current channel
         '''                
         self.send('JOIN %s %s' % (chan, key))
         
     def part(self, chan, msg=''):
         '''
-            @var msg: PART message
+            @param msg: PART message
             @summary: Parts the bot from a channel
         '''
         self.send("PART %s :%s" % (chan, msg))        
@@ -357,58 +598,60 @@ class ActiveBot(BaseBot):
         '''
             @summary: Sends a message to identify bot's NICK 
         '''
-        self.send("PRIVMSG nickserv :identify %s" % self.params['password'])
+        if self.params['password']:
+            self.send("PRIVMSG nickserv :identify %s" % self.params['password'])
         
     def ghost(self, nick):
         '''
-            @var nick: NICK to ghost
+            @param nick: NICK to ghost
             @summary: Sends a message to NickServ to ghost a NICK
         '''
-        Log.write("Ghosting nick...")
-        self.send("PRIVMSG nickserv :ghost %s %s" % (nick, self.params['password']))        
+        if self.params['password']:
+            Log.write("Ghosting nick...")
+            self.send("PRIVMSG nickserv :ghost %s %s" % (nick, self.params['password']))        
     
     def nick(self, nick):
         '''
-            @var nick: New nick for bot
+            @param nick: New nick for bot
             @summary: Sends a NICK message to to change bot's nick
         '''
         self.send("NICK %s" % nick)    
         
     def disconnect(self, msg):
         '''
-            @var msg: QUIT message
+            @param msg: QUIT message
             @summary: Disconnect the bot from the IRC
         '''
         self.send('QUIT :%s' % msg)         
     
     def say(self, msg):     
         '''
-            @var msg: Message to say
+            @param msg: Message to say
             @summary: Say something in the current channel
         '''   
         self.send('PRIVMSG %s :%s' % (self.current_channel, msg))
         
     def msg(self, nick, msg):
         '''
-            @var nick: User nick or channel
-            @var msg: Message to say
+            @param nick: User nick or channel
+            @param msg: Message to say
             @summary: Say something to a channel or user
         '''   
         self.send('PRIVMSG %s :%s' % (nick, msg))
     
     def notice(self, nick, msg):
         '''
-            @var nick: User nick or channel
-            @var msg: Message to say
+            @param nick: User nick or channel
+            @param msg: Message to say
             @summary: Whisper something to a channel or user
         '''   
         self.send('NOTICE %s :%s' % (nick, msg))
             
     def send_multiline(self, method, nick, lines):
         '''
-            @var method: The method to use to send the message
-            @var nick: The user to send the message to, if applicable
-            @var lines: A multiline message string
+            @param method: The method to use to send the message
+            @param nick: The user to send the message to, if applicable
+            @param lines: A multiline message string
         '''             
         for line in lines.split('\n'):
             self._multisend_lock.acquire()
@@ -426,13 +669,13 @@ class ActiveBot(BaseBot):
             
     def kick(self, nick, msg, auto_op=True):        
         '''
-            @var nick: User nick
-            @var msg: KICK reason
-            @var auto_op: If set to true ensures that the bot is +o'd first
+            @param nick: User nick
+            @param msg: KICK reason
+            @param auto_op: If set to true ensures that the bot is +o'd first
             @summary: Kicks a user from the channel
             @attention: Requires OP mode
         '''
-        if nick != self.params['nick']:     # Avoid kicking self
+        if self.get_status('kick') and nick != self.params['nick']:     # Avoid kicking self
             if self._flags['o']:
                 self.send('KICK %s %s %s' % (self.current_channel, nick, ' :'+msg if msg else ''))
             elif auto_op:
@@ -441,22 +684,38 @@ class ActiveBot(BaseBot):
     
     def ban(self, host, auto_op=True):
         '''
-            @var host: User's hostmask
-            @var auto_op: If set to true ensures that the bot is +o'd first
+            @param host: User's hostmask
+            @param auto_op: If set to true ensures that the bot is +o'd first
             @summary: Bans a user from the channel
             @attention: Requires OP mode
         '''
-        if self._flags['o']:
-            self.send('MODE %s +b %s' % (self.current_channel, host,))
-        elif auto_op:
-            self.queue_op_add(target=self.ban, args=(host, False,))    
-            self.op(self.current_channel, self.params['nick'])
-        
+        if self.get_status('ban') and host.lstrip("*!*@") != self._names[self.params['nick']].host:
+            if self._flags['o']:
+                self.send('MODE %s +b %s' % (self.current_channel, host,))
+            elif auto_op:
+                self.queue_op_add(target=self.ban, args=(host, False,))    
+                self.op(self.current_channel, self.params['nick'])        
     
+    def kickban(self, nick, host, msg, auto_op=True):        
+        '''
+            @param nick: User nick
+            @param msg: KICK reason
+            @param auto_op: If set to true ensures that the bot is +o'd first
+            @summary: Kicks a user from the channel
+            @attention: Requires OP mode
+        '''        
+        if self.get_status('kick') and self.get_status('ban') and nick != self.params['nick']:     # Avoid kicking self
+            if self._flags['o']:
+                self.kick(nick, msg)
+                self.ban(host)
+            elif auto_op:
+                self.queue_op_add(target=self.kickban, args=(nick, host, msg, False,))
+                self.op(self.current_channel, self.params['nick'])
+                
     def unban(self, host, auto_op=True):    
         '''
-            @var host: User's hostmask
-            @var auto_op: If set to true ensures that the bot is +o'd first
+            @param host: User's hostmask
+            @param auto_op: If set to true ensures that the bot is +o'd first
             @summary: Unbans a user from the channel
             @attention: Requires OP mode
         ''' 
@@ -472,32 +731,39 @@ class ActiveBot(BaseBot):
         '''       
         self.send('NAMES %s' % self.current_channel)        
     
+    def userhosts(self, names):
+        '''
+            @param names: Space separated string of upto 5 nicks
+            @summary: Send a USERHOST command to get the list of upto 5 userhosts in the current channel
+        '''       
+        self.send("USERHOST %s" % names)
+        
     def action(self, msg):
         '''
-            @var msg: Message to display
+            @param msg: Message to display
             @summary: Send an ACTION message
         '''
         self.send("PRIVMSG %s :\x01ACTION %s\x01" % (self.current_channel, msg))
     
     def op(self, chan, nick):
         '''
-            @var nick: Nick of the user to op
-            @var chan: The channel to op to
+            @param nick: Nick of the user to op
+            @param chan: The channel to op to
             @summary: OPs the user in a given channel
         '''
         self.send("PRIVMSG ChanServ :op %s %s" % (chan, nick))
         
     def deop(self, chan, nick):
         '''
-            @var nick: Nick of the user to deop
-            @var chan: The channel to deop from
+            @param nick: Nick of the user to deop
+            @param chan: The channel to deop from
             @summary: DEOPs the user in a given channel
         '''
         self.send("PRIVMSG ChanServ :deop %s %s" % (chan, nick))                    
     
     def parse_recv(self, recv):
         '''
-            @var recv: Messages from IRC
+            @param recv: Messages from IRC
             @summary: Parses the messages coming from the IRC to take suitable actions
         '''
         for line in recv:
@@ -543,88 +809,103 @@ class ActiveBot(BaseBot):
             elif line[1] == "462":                          # Already registered
                 return self.stat_already_registered(line)   
             # Basic Messages
-            elif line[1] == "PRIVMSG":                
+            elif line[1] == "PRIVMSG": 
                 self.cmd_privmsg(line)
                                                            
         return True
     
     def cmd_ping(self, line):
         '''
-            @var line: The text received broken into tokens
+            @param line: The text received broken into tokens
             @summary: Ping was received            
         '''
         self.send("PONG %s" % line[1])
-        return self.recv_ping(line[1]) 
+        return self.recv_ping(line[1].lstrip(':')) 
     
     def cmd_pong(self, line):
         '''
-            @var line: The text received broken into tokens
+            @param line: The text received broken into tokens
             @summary: Pong was received            
         ''' 
         self._pong_recv = True
-        return self.recv_pong(line[0], line[-1])
+        return self.recv_pong(line[0].lstrip(':'), line[-1].lstrip(':'))
     
     def cmd_quit(self, line):
         '''
-            @var line: The text received broken into tokens
+            @param line: The text received broken into tokens
             @summary: QUIT was received            
         '''
-        return self.recv_quit(line[0], ' '.join(line[2:]).lstrip(':'))
+        return self.recv_quit(line[0].lstrip(':'), ' '.join(line[2:]).lstrip(':'))
         
         
     def cmd_part(self, line):
         '''
-            @var line: The text received broken into tokens
+            @param line: The text received broken into tokens
             @summary: PART was received            
         '''
-        return self.recv_part(line[0], line[2], ' '.join(line[3:]).lstrip(':'))
+        return self.recv_part(line[0].lstrip(':'), line[2], ' '.join(line[3:]).lstrip(':'))
     
     def cmd_join(self, line):
         '''
-            @var line: The text received broken into tokens
+            @param line: The text received broken into tokens
             @summary: JOIN was received            
         '''    
-        return self.recv_join(line[0], line[2])
+        return self.recv_join(line[0].lstrip(':'), line[2])
     
     def cmd_kick(self, line):
         '''
-            @var line: The text received broken into tokens
+            @param line: The text received broken into tokens
             @summary: KICK was received            
         '''
-        return self.recv_kick(line[0], line[2], line[3], ' '.join(line[4:]).lstrip(':'))
+        return self.recv_kick(line[0].lstrip(':'), line[2], line[3], ' '.join(line[4:]).lstrip(':'))
     
     def cmd_notice(self, line):
         '''
-            @var line: The text received broken into tokens
+            @param line: The text received broken into tokens
             @summary: NOTICE was received            
         '''
-        return self.recv_notice(line[0], ' '.join(line[3:]))        
+        return self.recv_notice(line[0].lstrip(':'), line[2] == "*", ' '.join(line[3:]).lstrip(':'))        
     
     def cmd_nick(self, line):
         '''
-            @var line: The text received broken into tokens
+            @param line: The text received broken into tokens
             @summary: NICK was received            
         '''
-        return self.recv_nick(line[0], line[2])
+        return self.recv_nick(line[0].lstrip(':'), line[2].lstrip(':'))
     
     def cmd_mode(self, line):
         '''
-            @var line: The text received broken into tokens
+            @param line: The text received broken into tokens
             @summary: MODE was received            
-        ''' 
-        return self.recv_mode(line[0], line[2], line[3], line[4:])       
+        '''         
+        flags = line[3]
+        
+        if len(line) == 4:          # Flag on channel
+            users = None
+            mode = flags[0]
+            flags = flags[1:]
+        else:
+            users = line[4:]
+            mode = flags[0]
+            if mode == ":":
+                mode = flags[1:2]           
+                flags = flags[2:]
+            else:                  
+                flags = flags[1:]
+                
+        return self.recv_mode(line[0].lstrip(':'), line[2], mode, flags, users)       
     
     def cmd_privmsg(self, line):
         '''
-            @var line: The text received broken into tokens
+            @param line: The text received broken into tokens
             @summary: PRIVMSG is received            
         '''        
-        return self.recv_privmsg(line[0], line[2], ' '.join(line[3:])) 
+        return self.recv_privmsg(line[0].lstrip(':'), line[2], ' '.join(line[3:]).lstrip(':')) 
            
     # Control Messages
     def stat_nickuse(self, line):
         '''
-            @var line: The text received broken into tokens
+            @param line: The text received broken into tokens
             @summary: The nick is already in use            
         '''                
         if not self._joined:
@@ -637,21 +918,21 @@ class ActiveBot(BaseBot):
     
     def stat_startmotd(self, line):
         '''
-            @var line: The text received broken into tokens
+            @param line: The text received broken into tokens
             @summary: Start of MOTD            
         '''
         return True
     
     def stat_motd(self, line):
         '''
-            @var line: The text received broken into tokens
+            @param line: The text received broken into tokens
             @summary: Content of MOTD            
         '''
         return True
     
     def stat_endmotd(self, line):
         '''
-            @var line: The text received broken into tokens
+            @param line: The text received broken into tokens
             @summary: End of MOTD            
         '''
         if self._ghost:                             # If ghosting requested
@@ -659,63 +940,73 @@ class ActiveBot(BaseBot):
             self._ghost = False
         else:
             self.identify()                         # Normal join, just identify
+            Thread(target=self._success_callback, args=(self,), name='callback').start()        # Call callback function
         
         self.reset_flags(build=False)               # Give bot a fresh start
-        Thread(target=self._success_callback, args=(self,), name='callback').start()    # Call callback function
-        Thread(target=self.server_ping, name='ActiveBot.server_ping').start()     # Start pinger thread
+                            
         return True
     
     def stat_names(self, line):
         '''
-            @var line: The text received broken into tokens
+            @param line: The text received broken into tokens
             @summary: NAMES is received
         '''
-        self._usernames = [x.strip(':@+') for x in line[5:]] # Get clean names
+        for x in line[5:]:
+            self._names[x.strip(':@+')] = None      # Add names to current list
         return True
     
     def stat_endnames(self, line):
         '''
-            @var line: The text received broken into tokens
+            @param line: The text received broken into tokens
             @summary: End of NAMES            
-        '''            
+        '''        
         return True        
     
     def stat_userhost(self, line):
         '''
-            @var line: The text received broken into tokens
+            @param line: The text received broken into tokens
             @summary: USERHOST is received          
-        '''        
+        '''
+        for uh in line[3:]:                                     # Build usernames
+            m = self._regexes['userhost'].search(uh)
+            if m:
+                nick = m.group(1).lstrip(':@+')
+                self._names[nick] = User(nick + '!' + m.group(2))
+                self.on_recv_userhosts(nick, m.group(2))
         return True
         
     def stat_already_registered(self, line):
         '''
-            @var line: The text received broken into tokens
+            @param line: The text received broken into tokens
             @summary: ERR_ALREADYREGISTERED is received          
-        '''        
-        return self.stat_endmotd(line)
+        '''
+        self.identify()                         # Normal join, just identify
+        return True   
+        #return self.stat_endmotd(line)
     
     def recv_ping(self, server):
         '''
-            @var server: The server that sent PING
+            @param server: The server that sent PING
         '''
         return True
     
     def recv_pong(self, server, msg):
         '''
-            @var server: The server that sent the PONG
-            @var channel: PONG message
+            @param server: The server that sent the PONG
+            @param channel: PONG message
         '''
         return True  
         
     def recv_quit(self, user, reason):
         '''
-            @var user: The user that parted
-            @var reason: The reason for quit
-        '''
-        self._logger.quit(user, reason)
-        m = self._regexes['name'].match(user)          # Disconnect read loop
-        user = m.group(1)
-        if user == self.params['nick']:                    
+            @param user: The user that parted
+            @param reason: The reason for quit
+        '''                    
+        u = User(user, simple=True)
+        if self._names.has_key(u.nick):
+            self._names.pop(u.nick)
+        self.on_userlist_update()        
+        if u.nick == self.params['nick']:                    
             if reason == "Disconnected by services":   # If bot is disconnected by services then do not retry [GHOSTING]
                 self.close()                                                      
             return False                                  # Terminate read thread
@@ -724,80 +1015,88 @@ class ActiveBot(BaseBot):
     
     def recv_part(self, user, channel, reason):
         '''
-            @var user: The user that parted
-            @var channel: The channel that was parted from
-        '''
-        m = self._regexes['name'].match(user)    
-        if m.group(1) == self.params['nick']:
+            @param user: The user that parted
+            @param channel: The channel that was parted from
+        '''        
+        u = User(user, simple=True)
+        if self._names.has_key(u.nick):
+            self._names.pop(u.nick)    
+        self.on_userlist_update()
+        if u.nick == self.params['nick']:
             self.on_bot_part(channel)
-        self._logger.parted(user, channel, reason)
         return True
     
     def recv_join(self, user, channel ):
         '''
-            @var user: The user that joined
-            @var channel: The channel that was joined to
-        '''
-        self._logger.joined(user, channel)
-        m = self._regexes['name'].match(user)            
-        if m.group(1) == self.params['nick']:
-            self.on_bot_join(channel)        
+            @param user: The user that joined
+            @param channel: The channel that was joined to
+        '''        
+        u = User(user, simple=True)
+        if self._names.has_key(u.nick):
+            self._names[u.nick] = u        
+        self.on_userlist_update()
+        if u.nick == self.params['nick']:
+            self._names = {}
+            self.on_bot_join(channel)
+            self._cv_userlist.acquire()
+            self._cv_userlist.notify_all()
+            self._cv_userlist.release()
         return True
     
     def recv_kick(self, source, channel, user, reason):
         '''
-            @var source: The user who issued the KICK
-            @var channel: The channel on which KICK was issued
-            @var user: The user who got kicked
-            @var reason: The reason for kicking 
+            @param source: The user who issued the KICK
+            @param channel: The channel on which KICK was issued
+            @param user: The user who got kicked
+            @param reason: The reason for kicking 
         '''
-        self._logger.kicked(source, user, channel, reason)
+        if self._names.has_key(user):
+            self._names.pop(user)
+        self.on_userlist_update()
         if user == self.params['nick']:                         # If bot is kicked
-            self.join(channel)  
+            self.join(channel)
         return True
     
-    def recv_notice(self, source, msg):
+    def recv_notice(self, source, broadcast, msg):
         '''
-            @var source: The source of the NOTICE
-            @var source: The message received
+            @param source: The source of the NOTICE
+            @param broadcast: True if the notice is a broadcasted notice 
+            @param msg: The message received
         '''
         if msg.find(' has been ghosted') != -1:                 # Duplicate NICK has been ghosted
             self.nick(self.orig_nick)                           # Claim original NICK
             self.identify()                                     # Identify
+            Thread(target=self._success_callback, args=(self,), name='callback').start()        # Call callback function
         return True
     
     def recv_nick(self, user, new_nick):
         '''
-            @var user: The user who issued NICK
-            @var new_nick: The new NICK
-        '''
-        self._logger.nick(user, new_nick)
-        m = self._regexes['name'].search(user);              # Update nick when changed
-        if m.group(1) == self.params['nick']:
-            self.params['nick'] = new_nick.strip(':@+')
+            @param user: The user who issued NICK
+            @param new_nick: The new NICK
+        '''                
+        u = User(user, simple=True)
+        if self._names.has_key(u.nick):
+            self._names.pop(u.nick)
+            self._names[new_nick] = u
+        self.on_userlist_update()        
+        if u.nick == self.params['nick']:
+            self.params['nick'] = new_nick
             self.on_bot_nick_change(self.params['nick'])
+            self.call_listeners('botnick', None, u, self.params['nick'])            
         return True
     
-    def recv_mode(self, source, channel, flags, users):
+    def recv_mode(self, source, channel, mode, flags, users):
         '''
-            @var source: The user who issued the KICK
-            @var channel: The channel on which KICK was issued
-            @var mode: Flags set or reset (+ or -)
-            @var flags: The flags issued
-            @var users: The users specified
+            @param source: The user who issued the KICK
+            @param channel: The channel on which KICK was issued
+            @param mode: Flags set or reset (+ or -)
+            @param flags: The flags issued
+            @param users: The users specified
         '''        
-        self._logger.mode(source, channel, flags, ', '.join(users))
-        if self.params['nick'] in users:    # Mode is set on an user and not on channel (hence the 4th index)
-            mode = flags[0]
-            if mode == ":":
-                mode = flags[1:2]           
-                flags = flags[2:]
-            else:                  
-                flags = flags[1:]            
-        
+        if users and self.params['nick'] in users:    # Mode is set on an user and not on channel (hence the 4th index)                  
             for c in flags:
-                self._flags[c] = (mode == '+')
-                
+                self._flags[c] = (mode == '+')            
+            
             if mode == '+':
                 self.on_bot_mode_set()
             else:
@@ -806,18 +1105,22 @@ class ActiveBot(BaseBot):
     
     def recv_privmsg(self, user, channel, msg):
         '''
-            @var source: The user sending the PRIVMSG
-            @var source: The message received
-        '''
-        if channel == self.current_channel:
-            self._logger.msg(user, None, msg.lstrip(':'))
-        else:
-            self._logger.msg(user, channel, msg.lstrip(':'))
+            @param source: The user sending the PRIVMSG
+            @param source: The message received
+        '''            
         return True
+            
+    def on_connected(self):
+        '''
+            @summary: Called when the bot is connected
+        '''
+        self._has_quit = self._restart_req = False
+        Thread(target=self.server_ping, name='ActiveBot.server_ping').start()               # Start pinger thread
+        Thread(target=self.userlist_buildup, name='ActiveBot.userlist_buildup').start()     # Start userlist monitoring thread
     
     def on_bot_join(self, channel):
         '''
-            @var channel: The channel name
+            @param channel: The channel name
             @summary: Called when the bot joins a channel
         '''          
         if channel not in self.params['chan']: 
@@ -825,7 +1128,7 @@ class ActiveBot(BaseBot):
     
     def on_bot_part(self, channel):
         '''
-            @var channel: The channel name
+            @param channel: The channel name
             @summary: Called when the bot parts the channel
         '''        
         if channel in self.params['chan']: 
@@ -835,6 +1138,8 @@ class ActiveBot(BaseBot):
         '''
             @summary: Called when a mode is set on the bot
         '''
+        if self._flags['o']:
+            Thread(target=self.queue_op_process, name='QircBot.queue_op_process').start() 
         pass
     
     def on_bot_mode_reset(self):
@@ -845,21 +1150,41 @@ class ActiveBot(BaseBot):
 
     def on_bot_nick_change(self, nick):
         '''
-            @var nick: The new nick
+            @param nick: The new nick
             @summary: Called when the nick is changed on bot
+        '''
+        pass
+    
+    def on_recv_userhosts(self, nick, userhost):
+        '''
+            @param nick: The nick
+            @param userhost: The nick's userhost
+            @summary: Called when the a userhost is received
+        '''
+        pass
+    
+    def on_userlist_complete(self):
+        '''            
+            @summary: Called when the the userlist has all entries completed
+        '''
+        pass
+    
+    def on_userlist_update(self):
+        '''            
+            @summary: Called when the the userlist is changed
         '''
         pass
     
 class ArmageddonBot(ActiveBot):
     '''
         @summary: Incorporates complex functionality into the bot
-        @version: 3.0
+        @version: 4.0
     '''    
-      
+    
     def __init__(self, callback, params=None):
         '''
-            @var callback  : A callback function to be called when bot is successfully registered
-            @var params    : Parameters for the bot,
+            @param callback  : A callback function to be called when bot is successfully registered
+            @param params    : Parameters for the bot,
                              Default:
                                   'host'        : 'irc.freenode.net'
                                   'port'        : 6667
@@ -893,424 +1218,234 @@ class ArmageddonBot(ActiveBot):
                                             'powers'  : ['help']
                                         }
                          }
-                
-        self._arma_whitelist = None
-        self._arma_resetlist = None
+                        
         self._qircdb = SqliteDb()
         
-        # Interfaces
-        verbal_interface = VerbalInterface(self)
-        enforcer_interface = EnforcerInterface(self)
-        complete_interface = CompleteInterface(self)
-        
         # Module Managers
-        self._modmgr = ModuleManager()   
-        self._cmdmgr = CommandManager()
-        self._extmgr = ExternalManager()
+        self._extmgr = DynamicExtensionManager()   
+        self._cmdmgr = DynamicCommandManager()
         
-        # Load state
+        # Load State
         self.load_state()
         
-        # Add Modules
-        self._modmgr.add('search', SearchModule(verbal_interface), ['s', 'g'])
-        self._modmgr.add('calc', CalculationModule(verbal_interface), ['c'])
-        self._modmgr.add('define', DefinitionModule(verbal_interface), ['d'])
-        self._modmgr.add('quote', QuoteModule(verbal_interface))
-        self._modmgr.add('weather', WeatherModule(verbal_interface), ['w'])
-        self._modmgr.add('locate', LocationModule(verbal_interface), ['l'])
-        self._modmgr.add('url', UrlModule(verbal_interface))
-        self._modmgr.add('user', UserModule(enforcer_interface, self._qircdb))
-        self._modmgr.add('vote', VoteModule(enforcer_interface))
-        self._modmgr.add('roll', RollModule(verbal_interface))
-        self._modmgr.add('game', GameModule(verbal_interface))            
-        self._modmgr.add_intelligence(VerbModule(verbal_interface))
-        self._modmgr.add_intelligence(CleverModule(verbal_interface, self.params['nick']))
-        self._modmgr.disable_module('game')
-     
-        self._cmdmgr.add('join', JoinModule(complete_interface))
-        self._cmdmgr.add('part', PartModule(complete_interface))
-        self._cmdmgr.add('quit', QuitModule(complete_interface))
-        self._cmdmgr.add('kick', KickModule(complete_interface))
-        self._cmdmgr.add('ban', BanModule(complete_interface))
-        self._cmdmgr.add('op', OpModule(complete_interface))
-        self._cmdmgr.add('say', SayModule(complete_interface))
-        self._cmdmgr.add('armageddon', ArmageddonModule(complete_interface, [
-                                    'unaffiliated/nbaztec', 'krow\.me', '85\.17\.214\.157',                 # krow.me
-                                    'unaffiliated/hsr', 
-                                    '204\.176[.\d]+', '59\.178[.\d]+', 'unaffiliated/ico666',
-                                    'unaffiliated/lfc-fan/x-9923423',
-                                    'unaffiliated/thatsashok',
-                                    'services'
-                                ]))
-        self._cmdmgr.add('flags', FlagModule(complete_interface))
-        self._cmdmgr.add('enforce', EnforceModule(complete_interface))
-        self._cmdmgr.add('users', UserAuthModule(complete_interface))
-        self._cmdmgr.add('module', ModManagerModule(complete_interface))
+        # Load Modules
+        self.load_commands()
+        self.load_extensions()
         
         # Prepare Regexes                       
-        self._regexes['userhost'] = re.compile(r'([^=]*)=[+-](.*$)')        
-        self._regexes['cmd'] = re.compile(r'^([\S]+) ?(.*)$')
-        self._regexes['module-cmd'] = re.compile(r'^!(\w+)\s*(.*)$')
-        self._regexes['module-reply'] = re.compile(r'^%s[\s,:]+(.+)$' % self.params['nick'])
+        self._regexes['userhost'] = re.compile(r'([^=]*)=[+-](.*$)')
+
         self.regex_prepare_users()
-        
-        self.load_external_modules()
         
     def regex_prepare_users(self):
         '''
             @summary: Prepare a list of master and compiles the regex
         '''
         self._special_users = []                        # Prepare special list of users for optimizing match timings
-        for k, v in self._masters.iteritems():
+        for k, v in self._masters.items():
             if k != 'others':                           # Ensure others is last
                 self._special_users.append('(?P<%s>%s)' % (k, '|'.join(v['members'])))
         self._special_users.append('(?P<%s>%s)' % ('others', '|'.join(self._masters['others']['members'])))
-        self._regexes['special'] = re.compile(r'^:([^!]+)!~*[^@]+@(%s)$' % '|'.join(self._special_users))         # Regex for matching hostmask of users
+        self._regexes['special'] = re.compile(r'^([^!]+)!(~*[^@]+)@(%s)$' % '|'.join(self._special_users))         # Regex for matching hostmask of users
         
-    
-    def load_external_modules(self):
-        for name, obj in inspect.getmembers(External):
-            if inspect.isclass(obj) and obj.__bases__[0].__name__ == "BaseExternalModule":
-                print 'Importing', name, ' -> ', obj
-                itype = obj.get_interface_type()
-                self._extmgr.add(obj(itype(self)))                
+        User.set_special_regex(self._regexes['special'])
         
-    def get_status_flag(self, key=None):
+    def load_commands(self):
         '''
-            @var key: Key to status
-            @return: Returns True if the status is set, else False
+            @param reload_cmds: True if the modules have to be reloaded, False otherwise
+            @summary: Loads modules dynamically into the bot 
+        '''
+        for module_file in [Commands]:            
+            Log.write('Reloading %s' % module_file.__name__)
+            reload(module_file)                        
+            Log.write('Importing Commands in %s ' % module_file.__name__)
+            for name, obj in inspect.getmembers(module_file, predicate=inspect.isclass):
+                if inspect.isclass(obj) and obj.__bases__[0].__name__ == "BaseDynamicCommand":
+                    Log.write('Importing : %s' % name)
+                    if self._cmdmgr.add(obj(self), False):
+                        Log.write('[!] %s replaced previous command with same key' % name)
+            self._cmdmgr.build_regex()
+                                    
+        self._cmdmgr.reload()       # Call reload on every module
+        return True
+            
+    def load_command(self, key):
+        '''
+            @param key: A string identifying the module to load
+            @summary: Loads a command dynamically into the bot  
+        '''
+        for module_file in [Commands]:            
+            Log.write('Reloading %s' % module_file.__name__)
+            reload(module_file)                        
+            Log.write('Importing Command in %s ' % module_file.__name__)
+            for name, obj in inspect.getmembers(module_file, predicate=inspect.isclass):
+                if inspect.isclass(obj) and obj.__bases__[0].__name__ == "BaseDynamicCommand":
+                    if obj(self).key == key:
+                        Log.write('Importing : %s' % name)
+                        self._cmdmgr.add(obj(self), False)
+                        self._cmdmgr.build_regex()
+                        self._cmdmgr.reload(key)
+                        return True
+            return False
+    
+    def load_extensions(self, ext_type=0):
+        '''
+            @param reload_mods: True if the modules have to be reloaded, False otherwise
+            @summary: Loads modules dynamically into the bot 
+        '''
+        
+        if ext_type == 0:
+            modules = [Internal, External]
+        elif ext_type == 1:
+            modules = [Internal]
+        elif ext_type == 2:
+            modules = [External]
+            
+        for module_file in modules:            
+            Log.write('Reloading %s' % module_file.__name__)
+            reload(module_file)                        
+            Log.write('Importing Extensions in %s ' % module_file.__name__)
+            for name, obj in inspect.getmembers(module_file, predicate=inspect.isclass):
+                if inspect.isclass(obj) and obj.__bases__[0].__name__ == "BaseDynamicExtension":
+                    Log.write('Importing : %s' % name)
+                    if self._extmgr.add(obj(self), False):
+                        Log.write('[!] %s replaced previous extension with same key' % name)
+            self._extmgr.build_regex()
+                                    
+        self._extmgr.reload()       # Call reload on every module
+        return True
+        
+    def load_extension(self, key, ext_type=0):
+        '''
+            @param key: A string identifying the module to load
+            @summary: Loads a module dynamically into the bot 
+        '''
+        if ext_type == 0:
+            modules = [Internal, External]
+        elif ext_type == 1:
+            modules = [Internal]
+        elif ext_type == 2:
+            modules = [External]
+            
+        for module_file in modules:            
+            Log.write('Reloading %s' % module_file.__name__)
+            reload(module_file)                        
+            Log.write('Importing Extension in %s ' % module_file.__name__)
+            for name, obj in inspect.getmembers(module_file, predicate=inspect.isclass):
+                if inspect.isclass(obj) and obj.__bases__[0].__name__ == "BaseDynamicExtension":
+                    if obj(self).key == key:
+                        Log.write('Importing : %s' % name)
+                        self._extmgr.add(obj(self), False)
+                        self._extmgr.build_regex()
+                        self._extmgr.reload(key)
+                        return True
+            return False
+    
+    def reload_commands(self, key=None):
+        '''
+            @summary: Reload the current modules of the bot
         '''
         if key is None:
-            return self._status_flags.items()
-        else:            
-            return self._status_flags[key]
-            
-    def status_flag(self, key=None, value=None, flag_dict=False):
-        '''
-            @var key: Key to status
-            @var value: The new value to set, if required 
-            @var flag_dict: If true, then the original dict is set/returned
-            @return: Returns True if the status is set, else False
-        '''
-        if flag_dict:
-            if value is None:
-                return self._status_flags
-            else:        
-                self._status_flags = value
+            state = self._cmdmgr.get_state()
+            self.call_listeners('reload', None, None, None, only=['cmd'])
+            self._cmdmgr.clear()
+            self._cmdmgr.set_state(state)
+            return self.load_commands()            
         else:
-            if key is None:
-                return self._status_flags.items()
+            state = self._cmdmgr.get_current_module_state(key)
+            self._cmdmgr.call_listener('reload', key, None, None, None)
+            if self._cmdmgr.remove(key):
+                self._cmdmgr.set_module_state(key, state)
+                return self.load_command(key)
             else:
-                if value is not None:
-                    self._status_flags[key] = value
-                    return value
-                else:
-                    return self._status_flags[key]
-            
-            
-    def get_module(self, key):
-        '''
-            @var key: Returns a module specified by the key
-        '''
-        return self._modmgr.module(key)
-    
-    # Overriden recv methods
-    def reset_flags(self, bubble=True, build=True):
-        '''
-            @var bubble: Whether to reset the flags in the base class
-            @summary: Resets the state flags of the bot 
-        '''
-        self._armastep = 0                          # Init armageddon stage to 0
-        if bubble:
-            super(ArmageddonBot, self).reset_flags(build)
-                       
-    def cmd_join(self, line):
-        '''
-            @var line: The text received broken into tokens
-            @summary: JOIN was received            
-        '''        
-        #user = m.group(1)
-        #if user == self.params['nick']:
-        #    self.say('All systems go!')
-        m = self._regexes['name'].match(line[0])                # Get name of the joining user                    
-        if m.group(1) != self.params['nick']:                   # If user is not our bot
-            self._cmdmgr.module('enforce').enforce(line[0].lstrip(':@+'))
-            self._modmgr.module('user').seen_join(m.group(1),m.group(2),m.group(3))
-            #self.say('Hey ' + user)                            # Greet user
-        return super(ArmageddonBot, self).cmd_join(line)
-    
-    def on_bot_join(self, channel):
-        '''
-            @var channel: The channel name
-            @summary: Called when the bot joins a channel
-        ''' 
-        super(ArmageddonBot, self).on_bot_join(channel)
-        self.say('All systems go!')
+                return False
         
-    def cmd_nick(self, line):
+    def reload_extensions(self, key=None, ext_type=0):
         '''
-            @var line: The text received broken into tokens
-            @summary: NICK was received            
+            @summary: Reload the current extensions of the bot
         '''
-        if super(ArmageddonBot, self).cmd_nick(line):            
-            m = self._regexes['name'].search(line[0])
-            self._cmdmgr.module('enforce').enforce('%s!%s@%s' % (' '.join(line[2:]).strip(':@+'), m.group(2), m.group(3)))
-            return True
+        if key is None:
+            state = self._extmgr.get_state()            
+            self.call_listeners('reload', None, None, None, only=['mod'])
+            self._extmgr.clear()
+            self._extmgr.set_state(state)
+            return self.load_extensions(0)      # Reload all as clear() erases all extensions
         else:
-            return False   
-    
-    
-    def recv_kick(self, source, channel, user, reason):
-        '''
-            @var source: The user who issued the KICK
-            @var channel: The channel on which KICK was issued
-            @var user: The user who got kicked
-            @var reason: The reason for kicking 
-        '''
-        if super(ArmageddonBot, self).recv_kick(source, channel, user, reason):
-            self._modmgr.module('user').seen_part(user, reason)      
-            return True
-        else:
-            return False
-    
-    def recv_quit(self, user, reason):
-        '''
-            @var user: The user that parted
-            @var reason: The reason for quit
-        '''
-        if super(ArmageddonBot, self).recv_quit(user, reason):
-            m = self._regexes['name'].match(user)
-            self._modmgr.module('user').seen_part(m.group(1), reason)                                
-            return True
-        else:
-            return False
-        
-    
-    def recv_part(self, user, channel, reason):
-        '''
-            @var user: The user that parted
-            @var channel: The channel that was parted from
-        '''
-        if super(ArmageddonBot, self).recv_part(user, channel, reason):
-            m = self._regexes['name'].match(user)
-            self._modmgr.module('user').seen_part(m.group(1),'PART')
-            return True
-        else:
-            return False
-    
-       
-    # Overriden stat methods 
-    
-    def stat_endnames(self, line):
-        '''
-            @var line: The text received broken into tokens
-            @summary: End of NAMES
-            @notice: Used to implement armageddon            
-        '''
-        Log.write("Usernames %s" % self._usernames)                                
-        if self._armastep == 1:                                        
-            Thread(target=self.armageddon, name='armageddon-2').start()        
-        return True 
-    
-    def stat_userhost(self, line):
-        '''
-            @var line: The text received broken into tokens
-            @summary: USERHOST is received
-            @notice: Used to implement armageddon
-        '''
-        if self._armastep == 2:  
-            for uh in line[3:]:                     # Build userhosts
-                m = self._regexes['userhost'].search(uh)
-                if m:
-                    self.userhosts[m.group(1).strip(':@+')] = m.group(2)
-                    self.username_count -= 1            # Decrement to mark that all usernames were received
-            
-            if self.username_count == 0:               
-                Thread(target=self.armageddon, name='armageddon-3').start()
-                Log.write("Userhosts %s" % self.userhosts)                
-        return True
-    
-    def cmd_privmsg(self, line):
-        '''
-            @var line: The text received broken into tokens
-            @summary: End of MOTD   
-            @notice: Used to implement commands and actions
-        '''
-        if line[2] == self.params['nick']:  # If message is a privmsg for bot
-            m = self._regexes['special'].search(line[0])      # Extract user's details                                                                
-            if m:                                             # Check if user is a master of bot
-                usr = None                          
-                for k in self._masters.iterkeys():
-                    if m.group(k):
-                        usr = k
-                        break;                    
-                if usr and (self.status_flag('hear') or self._masters[usr]['auth'] == 0):    # If a valid user and hearing is enabled or user is admin
-                    Thread(target=self.parse_cmd, args=(usr, m.group(1), m.group(2), str.lstrip(' '.join(line[3:]),':'),), name='parse_cmd').start()                        
-        elif self.status_flag('voice'):                              
-            m = self._regexes['special'].search(line[0])      # Extract user's details                                                                
-            if m:              
-                usr = None                          
-                for k in self._masters.iterkeys():
-                    if m.group(k):
-                        usr = k
-                        break;
-                                   
-                if usr:                                       # Call extended parser in separate thread                    
-                    Thread(target=self.parse_msg, args=(usr, m.group(1), m.group(2), str.lstrip(' '.join(line[3:]),':'),), name='extended_parse').start()
-        
-        return super(ArmageddonBot, self).cmd_privmsg(line) 
-    
-    #Overriden events
-    
-    def on_bot_terminate(self):
-        '''
-            @summary: Called when the bot terminates
-        '''
-        self.save_state()                                     # Save state
-        if not self.close_requested():                        # Restart was requested
-            Log.write("Resurrecting...")            
-            self._sock = socket.socket();
-            Thread(target=self.start, name='start').start()
-        else:                
-            self._modmgr.module('user').remind_dispose()
-            self._logger.close()
-            Log.write("Boom! Owww. *Dead*")        
-
-    #def on_connected(self):
-    #    self.load_state()
-                            
-    def on_bot_mode_set(self):        
-        '''
-            @summary: Called when a mode is set on the bot.
-            @note: Used to trigger commands in queue requiring OP
-        '''        
-        if self._flags['o']:
-            if self._armastep == 3:
-                self.queue_op_add(target=self.armageddon)                    
-            Thread(target=self.queue_op_process, name='QircBot.queue_op_process').start() 
-      
-    #Persistence
-    def save_state(self):
-        '''
-            @summary: Saves the state of the bot and the modules
-        '''
-        pickler = cPickle.Pickler(open('Qirc.pkl', 'wb'))        
-        pickler.dump(self._masters)        
-        pickler.dump(self._arma_resetlist)
-        pickler.dump(self._modmgr.get_state())      # Dump Modules
-        pickler.dump(self._cmdmgr.get_state())      # Dump Command Modules
-        pickler.dump(self._logger.get_state())      # Logger
-        
-    
-    def load_state(self):
-        '''
-            @summary: Loads the state of the bot and the modules
-        '''
-        if path.exists('Qirc.pkl'):            
-            pickler = cPickle.Unpickler(open('Qirc.pkl', 'rb'))
-            try:
-                self._masters = pickler.load()
-                self._arma_resetlist = pickler.load()                                
-                self._modmgr.set_state(pickler.load())      # Mangers will handle pickle errors themselves
-                self._cmdmgr.set_state(pickler.load())      # Mangers will handle pickle errors themselves
-                self._logger.set_state(pickler.load())
-            except:
-                Log.error('Bad pickle state: ')
-        
-    # Implementation of parsers  
-    def parse_cmd(self, role, nick, host, cmd):
-        '''
-            @var role: The group of user
-            @var nick: Nick of user
-            @var host: Hostname of user
-            @var cmd: Command from standard input
-            @summary: Parses the command from PM to bot
-        '''                
-        m = self._regexes['cmd'].search(cmd)
-        if m:            
-            if self._masters[role]['powers'] is None or m.group(1) in self._masters[role]['powers']:
-                if m.group(1) == 'help':
-                    if self._masters[role]['powers'] is None:
-                        self.notice(nick, 'Commands are: help, join, part, quit, flags, enforce, module, users, op, say, kick, ban, armageddon')
-                    else:
-                        self.notice(nick, 'Commands are: %s' % ', '.join(self._masters[role]['powers']))
-                else:
-                    (_, result, success) = self._cmdmgr.parse(nick, host, self._masters[role]['auth'], self._masters[role]['powers'], m.group(1), m.group(2) if m.group(2) else '')
-                    if success is None:
-                        if self._masters[role]['powers'] is None:
-                            self.send(cmd)
-                    if success:
-                        if result:
-                            return False                                                    
-                    elif result:
-                        self.send_multiline(self.notice, nick, result.output)
-
+            state = self._extmgr.get_current_module_state(key)
+            self._extmgr.call_listener('reload', key, None, None, None)
+            if self._extmgr.remove(key):
+                self._extmgr.set_module_state(key, state)
+                return self.load_extension(key, ext_type)
             else:
-                self.notice(nick, 'You are not authorized to perform this operation. Type /msg %s help to see your list of commands' % self.params['nick'])
-        return True
-       
-    def parse_msg(self, role, nick, host, msg):
+                return False
+            
+    def get_module(self, key, mgr_type=0):
         '''
-            @var role: The group of user
-            @var nick: Nick of user
-            @var host: Hostname of user
-            @var msg: Message for bot
-            @summary: Specifies additional rules as the general purpose responses
+            @param key: Returns a module specified by the key
+            @param mgr_type: The manager to select - extension/command (0/1)
         '''
-        Log.write("Parse Message %s" % msg)    
-        self._modmgr.module('url').append_if_url(msg)                   # Check for URL
+        if mgr_type == 0:
+            return self._extmgr.module(key)
+        elif mgr_type == 1:
+            return self._cmdmgr.module(key)
         
-        # Tell Messages
-        messages = self._modmgr.module('user').tell_get(nick)
-        if messages:
-            for sender, msg, timestamp in messages:
-                self.say('%s, %s said (%s ago) "%s"' % (nick, sender, Chronograph.time_ago(timestamp), msg))
-                
-        # Voting
-        if self._modmgr.module('vote').is_voting:
-            if len(msg) == 1:
-                self._modmgr.module('vote').register_vote(nick, host, msg)
-                return True
-        if self._modmgr.module('game').is_joining:
-            if msg == "+":
-                self._modmgr.module('game').join(nick)
-                return True
-        elif self._modmgr.module('game').is_playing:
-            self._modmgr.module('game').response(nick, msg)            
-            return True
-                
-        m = self._regexes['module-cmd'].search(msg)        
-        if m:    
-            if m.group(1) == 'help':                
-                self.send_multiline(self.notice, nick, """Enter <command> -h for help on the respective command
-Commands: 
-    !help             Shows this help
-    !search, !s, !g   Search for a term on various sites
-    !calc, !c         Perform some calculation
-    !define, !d       Get the meaning, antonyms, etc. for a term
-    !quote            Get a quote
-    !weather, !w      Get weather and forecasts for a location
-    !locate, !l       Locate a user, IP or coordinate
-    !url              Perform operation on an url, 
-                      Use %N (max 5) to access an earlier url
-    !user             Perform operation related to user
-    !vote             Start a vote
-    !roll             Roll a dice
-    !game             Begin a game""")
-            else:
-                (key, result, success) = self._modmgr.parse(nick, host, self._masters[role]['auth'], self._masters[role]['powers'], m.group(1), m.group(2) if m.group(2) else '')
-                if key is None:     # Check in external modules
-                    (_, result, success) = self._extmgr.parse(nick, host, self._masters[role]['auth'], self._masters[role]['powers'], m.group(1), m.group(2) if m.group(2) else '')
-                if not success:
-                    if result:
-                        self.send_multiline(self.notice, nick, result.output)                                                    
-                elif result:
-                    self.say(result.output)        
+    def get_module_keys(self, mgr_type=0, enabled=True):
+        '''            
+            @param mgr_type: The manager to select - extension/command (0/1)
+            @param enabled: True if enabled modules have to be returned, False if disabled ones are required 
+            @return: A list of module keys
+        '''
+        if mgr_type == 0:            
+            return (self._extmgr.enabled_modules() if enabled else self._extmgr.disabled_modules()) 
+        elif mgr_type == 1:
+            return (self._cmdmgr.enabled_modules() if enabled else self._cmdmgr.disabled_modules())            
+    
+    def get_sqlite_db(self):
+        '''
+            @return: Get the instance of sqlite database
+        '''
+        return self._qircdb
+    
+    def get_username(self, nick):
+        '''
+            @param nick: User's nick
+            @return: User's complete username or None
+        '''
+        if self._names.has_key(nick):
+            return self._names[nick]
         else:
-            m = self._regexes['module-reply'].search(msg)
-            if m and self.status_flag('talk'):
-                self._modmgr.reply(nick, host, self._masters[role]['auth'], self._masters[role]['powers'], m.group(1)) 
-      
+            return None
+        
+    def get_user_info(self, user):
+        '''
+            @param user: Complete username of the user
+            @return: A dict object containing information about the user
+        '''
+        if user is None:
+            return None
+        m = self._regexes['special'].search(user)      # Extract user's details                                                                
+        if m:              
+            role = 'others'            
+            for k in self._masters.iterkeys():
+                if m.group(k):
+                    role = k
+                    break;
+                                           
+            return { 
+                        'nick'      : m.group(1).lstrip(':@+'), 
+                        'ident'     : m.group(2),
+                        'host'      : m.group(3),
+                        'role'      : role,
+                        'auth'      : self._masters[role]['auth'],
+                        'powers'    : self._masters[role]['powers']
+                    }
+    
+    def call_listeners(self, key, channel, user, args, only=['mod', 'cmd']):
+        if 'mod' in only:
+            self._extmgr.call_listeners(key, channel, user, args)
+        if 'cmd' in only:
+            self._cmdmgr.call_listeners(key, channel, user, args)
+        
     def user_list(self):
         '''
             @summary: Returns the list of masters as a dict
@@ -1343,8 +1478,8 @@ Commands:
             
     def role_power(self, role, power, remove=False):
         '''
-            @var role: The group of user
-            @var hostname: The power
+            @param role: The group of user
+            @param hostname: The power
             @summary: Adds/Removes the power of a group
         '''
         if self._masters.has_key(role):
@@ -1358,8 +1493,8 @@ Commands:
      
     def role_add(self, role, auth):
         '''
-            @var role: The group name
-            @var auth: The authorization level of group
+            @param role: The group name
+            @param auth: The authorization level of group
             @summary: Adds the group to the list of masters
         '''
         if not self._masters.has_key(role):            
@@ -1368,7 +1503,7 @@ Commands:
     
     def role_remove(self, role):
         '''
-            @var role: The group name
+            @param role: The group name
             @summary: Removes the group from the list of masters
         '''
         if self._masters.has_key(role):
@@ -1377,8 +1512,8 @@ Commands:
                       
     def user_add(self, role, hostname):
         '''
-            @var role: The group of user
-            @var hostname: The hostname of user
+            @param role: The group of user
+            @param hostname: The hostname of user
             @summary: Adds the hostname to a specified group of masters
         '''
         if self._masters.has_key(role):
@@ -1389,8 +1524,8 @@ Commands:
     
     def user_remove(self, role, hostname):
         '''
-            @var role: The group of user
-            @var hostname: The hostname of user
+            @param role: The group of user
+            @param hostname: The hostname of user
             @summary: Removes the hostname from a specified group of masters
         '''
         if self._masters.has_key(role):
@@ -1401,8 +1536,8 @@ Commands:
             
     def user_auth(self, user=None, role=None):
         '''
-            @var user: The user's hostmask
-            @var role: The group name
+            @param user: The user's hostmask
+            @param role: The group name
             @summary: Returns the authority level of the user or group
         '''
         if user:
@@ -1411,80 +1546,339 @@ Commands:
                     return v['auth']
         elif role:
             if self._masters.has_key(role):
-                return self._masters[role]['auth']        
-                    
-    # WARNING: Do you know what you are doing?
-    def arma_whitelist(self):
-        return self._cmdmgr.module('armageddon').whitelist()
-    
-    def armageddon(self, build=False):  
+                return self._masters[role]['auth']     
+            
+    # Overriden recv methods
+    def reset_flags(self, bubble=True, build=True):
         '''
-            @var build: True if called for first time, from stage 0. False otherwise.
-            @summary: Does what it says. Armageddon.
-                      Kickbans all users except the ones in whitelist
+            @param bubble: Whether to reset the flags in the base class
+            @summary: Resets the state flags of the bot 
+        '''        
+        if bubble:
+            super(ArmageddonBot, self).reset_flags(build)
+                       
+    def cmd_join(self, line):
+        '''
+            @param line: The text received broken into tokens
+            @summary: JOIN was received            
+        '''                                
+        return super(ArmageddonBot, self).cmd_join(line)
+    
+    def on_bot_join(self, channel):
+        '''
+            @param channel: The channel name
+            @summary: Called when the bot joins a channel
         ''' 
-                                                
-        if build and self._armastep == 0:               # Stage 1, Prepare usernames            
-            self._armastep += 1                    
-            self._usernames = []            
-            self.names()
-        elif self._armastep == 1:                       # Stage 2, Prepare userhosts
-            self._armastep += 1         
-            self.userhosts = {}                         # Fresh list of userhosts
-            try:
-                self._usernames.remove(self.params['nick']) # Remove bot's nick from the list
+        super(ArmageddonBot, self).on_bot_join(channel)
+        self.names()
+        self.say('All systems go!')
+        
+    def cmd_nick(self, line):
+        '''
+            @param line: The text received broken into tokens
+            @summary: NICK was received            
+        '''
+        return super(ArmageddonBot, self).cmd_nick(line)
+    
+    def recv_quit(self, user, reason):
+        '''
+            @param user: The user that parted
+            @param reason: The reason for quit
+        '''
+        u = User(user, masters=self._masters)
+        if u.nick == self.params['nick']:
+            self.call_listeners('botquit', None, u, reason)
+        else:
+            self.call_listeners('quit', None, u, reason)            
+        return super(ArmageddonBot, self).recv_quit(user, reason)
+            
+    def recv_part(self, user, channel, reason):
+        '''
+            @param user: The user that parted
+            @param channel: The channel that was parted from
+        '''        
+        u = User(user, masters=self._masters)
+        if u.nick != self.params['nick']:
+            self.call_listeners('part', channel, u, reason)
+        return super(ArmageddonBot, self).recv_part(user, channel, reason)
+    
+    def recv_kick(self, source, channel, user, reason):
+        '''
+            @param source: The user who issued the KICK
+            @param channel: The channel on which KICK was issued
+            @param user: The user who got kicked
+            @param reason: The reason for kicking 
+        '''
+        if self._names.has_key(user) and self._names[user]:
+            self.call_listeners('kick', channel, self._names[user], (User(source, masters=self._masters), reason))            
+        return super(ArmageddonBot, self).recv_kick(source, channel, user, reason)
+    
+    def recv_ping(self, server):
+        '''
+            @param server: The server that sent PING
+        '''
+        self.call_listeners('pong', None, None, server)
+        return super(ArmageddonBot, self).recv_ping(server)
+    
+    def recv_pong(self, server, msg):
+        '''
+            @param server: The server that sent the PONG
+            @param channel: PONG message
+        '''
+        self.call_listeners('pong', None, None, (server, msg))
+        return super(ArmageddonBot, self).recv_pong(server, msg) 
+    
+    def recv_join(self, user, channel):
+        '''
+            @param user: The user that joined
+            @param channel: The channel that was joined to
+        '''
+        if super(ArmageddonBot, self).recv_join(user, channel):            
+            self.call_listeners('join', channel, User(user, masters=self._masters), None)                
+            return True
+        else:
+            return False
+    
+    def recv_notice(self, source, broadcast, msg):
+        '''
+            @param source: The source of the NOTICE
+            @param broadcast: True if the notice is a broadcasted notice 
+            @param msg: The message received
+        '''
+        if super(ArmageddonBot, self).recv_notice(source, broadcast, msg):
+            if broadcast:
+                self.call_listeners('broadcast', None, User(source, server=True), msg)
+            else:
+                self.call_listeners('notice', None, User(source, masters=self._masters), msg)
+            return True
+        else:
+            return False
+    
+    def recv_nick(self, user, new_nick):
+        '''
+            @param user: The user who issued NICK
+            @param new_nick: The new NICK
+        '''
+        if super(ArmageddonBot, self).recv_nick(user, new_nick):            
+            self.call_listeners('nick', None, User(user, masters=self._masters), new_nick)      
+            return True
+        else:
+            return False
+    
+    def recv_mode(self, source, channel, mode, flags, users):
+        '''
+            @param source: The user who issued the KICK
+            @param channel: The channel on which KICK was issued
+            @param mode: Flags set or reset (+ or -)
+            @param flags: The flags issued
+            @param users: The users specified
+        '''  
+        if super(ArmageddonBot, self).recv_mode(source, channel, mode, flags, users):
+            self.call_listeners('mode', channel, User(source, masters=self._masters), (mode, flags, users))
+            return True
+        else:
+            return False
+        
+    def recv_privmsg(self, user, channel, msg):
+        '''
+            @param source: The user sending the PRIVMSG
+            @param source: The message received
+        '''
+        if super(ArmageddonBot, self).recv_privmsg(user, channel, msg):            
+            if channel == self.current_channel:
+                self.call_listeners('msg', channel, User(user, masters=self._masters), msg)
+            else:
+                self.call_listeners('privmsg', None, User(user, masters=self._masters), msg, only=['cmd'])
+            return True
+        else:
+            return False        
+            
+        return True
+    
+    # Overriden stat methods 
+    
+    def stat_names(self, line):
+        '''
+            @param line: The text received broken into tokens
+            @summary: NAMES is received
+        '''        
+        return super(ArmageddonBot, self).stat_names(line)
+    
+    def stat_endnames(self, line):
+        '''
+            @param line: The text received broken into tokens
+            @summary: End of NAMES
+            @notice: Used to implement armageddon            
+        '''
+        Log.write("Usernames %s" % self._names)        
+        return super(ArmageddonBot, self).stat_endnames(line)    
+    
+    def stat_endmotd(self, line):
+        '''
+            @param line: The text received broken into tokens
+            @summary: End of MOTD            
+        '''  
+        if super(ArmageddonBot, self).stat_endmotd(line):
+            self.call_listeners('motd_end', None, None, None)
+            return True
+        else:
+            return False
+
+    def cmd_privmsg(self, line):
+        '''
+            @param line: The text received broken into tokens
+            @summary: End of MOTD   
+            @notice: Used to implement commands and actions
+        '''
+        u = User(line[0].lstrip(':'), masters=self._masters)
+        if line[2] == self.params['nick']:                              # If message is a privmsg for bot                    
+            if u.role and self.get_status('hear') or u.auth == 0:       # If a valid user and hearing is enabled or user is admin
+                Thread(target=self.parse_cmd, args=(u, str.lstrip(' '.join(line[3:]),':'),), name='parse_cmd').start()                        
+        elif self.get_status('voice'):            
+            if u.role:                                                  # Call extended parser in separate thread                    
+                Thread(target=self.parse_msg, args=(u, str.lstrip(' '.join(line[3:]),':'),), name='extended_parse').start()
+        
+        return super(ArmageddonBot, self).cmd_privmsg(line) 
+    
+    # Overriden events
+    
+    def on_bot_terminate(self):
+        '''
+            @summary: Called when the bot terminates
+        '''
+        self.save_state()                                     # Save state
+        
+        if not self.close_requested():                        # Restart was requested
+            self._restart_req = True
+            self._cv_exit.acquire()
+            self._cv_exit.notify_all()
+            self._cv_exit.release()
+            self._cv_userlist.acquire()
+            self._cv_userlist.notify_all()
+            self._cv_userlist.release()
+            Log.write("Resurrecting...")            
+            self._sock = socket.socket();
+            Thread(target=self.start, name='start').start()
+        else:
+            self.call_listeners('exit', None, None, None)
+            self._cv_exit.acquire()
+            self._cv_exit.notify_all()
+            self._cv_exit.release()
+            self._cv_userlist.acquire()
+            self._cv_userlist.notify_all()
+            self._cv_userlist.release()
+            Log.write('Bits thou art, to bits thou returnest, was not spoken of....Boom! Owww. *Dead*')            
+                            
+    def on_bot_mode_set(self):        
+        '''
+            @summary: Called when a mode is set on the bot.
+            @note: Used to trigger commands in queue requiring OP
+        '''        
+        super(self.__class__, self).on_bot_mode_set()
+    
+    def on_recv_userhosts(self, nick, userhost):
+        '''
+            @param nick: The nick
+            @param userhost: The nick's userhost
+            @summary: Called when the a userhost is received
+        '''
+        super(self.__class__, self).on_recv_userhosts(nick, userhost)
+    
+    def on_userlist_complete(self):
+        '''            
+            @summary: Called when the the userlist has all entries completed
+        '''
+        if len(self._names):
+            self.call_listeners('userlist', None, None, self._names)
+    
+    # Persistence
+    def save_state(self):
+        '''
+            @summary: Saves the state of the bot and the modules
+        '''
+        pickler = cPickle.Pickler(open('Qirc.pkl', 'wb'))        
+        pickler.dump(self._masters)                
+        pickler.dump(self._extmgr.get_state())      # Dump Modules
+        pickler.dump(self._cmdmgr.get_state())      # Dump Command Modules        
+        
+    
+    def load_state(self):
+        '''
+            @summary: Loads the state of the bot and the modules
+        '''
+        if path.exists('Qirc.pkl'):            
+            pickler = cPickle.Unpickler(open('Qirc.pkl', 'rb'))
+            try:                
+                self._masters = pickler.load()                
+                self._extmgr.set_state(pickler.load())      # Mangers will handle pickle errors themselves
+                self._cmdmgr.set_state(pickler.load())      # Mangers will handle pickle errors themselves                
             except:
-                pass
-            self.username_count = len(self._usernames)
-            for uchunk in self.chunk(self._usernames, 5):   
-                self.send("USERHOST %s" % ' '.join(uchunk))
-        elif self._armastep == 2:                       # Stage 3, Get +o mode {optional}
-            self._armastep += 1            
-            self.op(self.current_channel, self.params['nick'])  
-        else:                                           # Final Stage, kickban everyone except in whitelist
-            self._armastep = 0                          # Reset armageddon to Stage 0
-            self._arma_resetlist = []
-            regx = re.compile(r'^[^@]*@(%s)' % '|'.join(self.arma_whitelist())) # Set whitelist
-            self._arma_whitelist = [] 
-            for u,h in self.userhosts.iteritems():                                         
-                if  regx.match(h) is None:                                        
-                    Log.write('armageddon-kickban %s %s' % (u, h))
-                    self.ban('*!' + h, False)
-                    self._arma_resetlist.append('*!' + h)
-                    self.kick(u, 'ARMAGEDDON', False)    
-                else:
-                    Log.write('Saved %s %s' % (u, h))
+                Log.error('Bad pickle state: ')
     
-    def arma(self, usernames):
+    # Implementation of parsers  
+    def parse_cmd(self, user, cmd):
         '''
-            @var usernames: The list of users to bring forth armageddon upon
-            @summary: A toned down version of armageddon kickbanning only selected users 
-        '''
-        self._armastep = 1        
-        self._usernames = usernames 
-        self.armageddon()    
+            @param role: The group of user
+            @param nick: Nick of user
+            @param host: Hostname of user
+            @param cmd: Command from standard input
+            @summary: Parses the command from PM to bot
+        '''                        
+        if cmd == 'help':
+            if user.powers is None:
+                self.notice(user.nick, 'Commands are: help, join, part, quit, flag, enforce, module, users, op, say, kick, ban, armageddon')
+            else:
+                self.notice(user.nick, 'Commands are: %s' % ', '.join(user.powers))
+        else:            
+            (key, result, success) = self._cmdmgr.parse_line(user, cmd) or (None, None, None)
+            if key:            
+                if result:
+                    self.send_multiline(self.notice, user.nick, result.output)
+            else:
+                if success is None:
+                    if user.powers is None:
+                        self.send(cmd)
+                    else:
+                        self.notice(user.nick, 'You are not authorized to perform this operation. Type /msg %s help to see your list of commands' % self.params['nick'])
+        return True
     
-    def arma_recover(self, auto_op=True):
+    def parse_msg(self, user, msg):
         '''
-            @var auto_op: If set to true ensures that the bot is +o'd first
-            @summary: Recovers from the armageddon by unbanning all the people previously banned
+            @param role: The group of user
+            @param nick: Nick of user
+            @param host: Hostname of user
+            @param msg: Message for bot
+            @summary: Specifies additional rules as the general purpose responses
         '''
-        if self._flags['o']:
-            for u in self._arma_resetlist:
-                self.unban(u, False)
-        elif auto_op:
-            self.queue_op_add(target=self.arma_recover, args=(False,)) 
-            self.op(self.current_channel, self.params['nick'])  
-                    
-    def chunk(self,l, n):
-        '''
-            @var l: The list to chunk
-            @var n: Number of elements per chunk
-            @summary: Splits a list into chunks having n elements each
-        '''
-        return [l[i:i+n] for i in range(0, len(l), n)]
+        Log.write("Parse Message %s" % msg)        
+        if msg == '!help':             
+            self.send_multiline(self.notice, user.nick, """Enter <command> -h for help on the respective command
+ Commands: 
+    !help             Shows this help
+    !search, !s, !g   Search for a term on various sites
+    !calc, !c         Perform some calculation
+    !define, !d       Get the meaning, antonyms, etc. for a term
+    !quote            Get a quote
+    !weather, !w      Get weather and forecasts for a location
+    !locate, !l       Locate a user, IP or coordinate
+    !url              Perform operation on an url, 
+                      Use %N (max 5) to access an earlier url
+    !user             Perform operation related to user
+    !vote             Start a vote
+    !roll             Roll a dice
+    !game             Begin a game""")    
     
+        else:
+            _, result, success = self._extmgr.parse_line(user, msg) or (None, None, None)            
+            if not success:
+                if result:
+                    self.send_multiline(self.notice, user.nick, result.output)                                                    
+            elif result:
+                self.say(result.output)
 
 
 # Use the final Bot as QircBot
 QircBot = ArmageddonBot
+'''    
+    @version: 4.0
+'''

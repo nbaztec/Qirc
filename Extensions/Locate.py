@@ -15,7 +15,7 @@ appid = {
    
 def iplocate(ip): 
     '''
-        @var ip: The IP address
+        @param ip: The IP address
         @summary: Performs a IP lookup and obtains the location of the user
     '''     
     try:
@@ -36,8 +36,8 @@ def iplocate(ip):
         
 def geo(latitude, longitude): 
     '''
-        @var latitude: The latitude of location
-        @var longitude: The longitude of location
+        @param latitude: The latitude of location
+        @param longitude: The longitude of location
         @summary: Performs a reverse geo lookup on Google Maps API
     '''     
     try:

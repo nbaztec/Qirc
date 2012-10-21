@@ -85,8 +85,8 @@ class PseudoIntelligence(object):
         
     def reply(self, stimuli, user):
         '''
-            @var stimuli: An input trigger
-            @var user: The user asking the bot
+            @param stimuli: An input trigger
+            @param user: The user asking the bot
             @summary: Returns a reply given an input stimuli
             @return: str, Reply
         '''
@@ -97,10 +97,10 @@ class PseudoIntelligence(object):
     
     def think(self, stimuli, m, v, user):
         '''
-            @var stimuli: An input trigger
-            @var m: The match object for substituting backreferences
-            @var v: The possible responses
-            @var user: The user asking the bot
+            @param stimuli: An input trigger
+            @param m: The match object for substituting backreferences
+            @param v: The possible responses
+            @param user: The user asking the bot
             @summary: Returns a reply given an input stimuli
             @return: str, Reply
         '''        
