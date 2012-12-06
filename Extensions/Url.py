@@ -14,7 +14,7 @@ from Util.BeautifulSoup import BeautifulSoup
 from Util import htmlx
 
 appid = {
-            'google'    : 'XXXX',
+            'google'    : '',
         }
 
 url_regex = re.compile(r'^https?://([^/]+)(.*)$')
@@ -92,14 +92,27 @@ def title(url, only_title=False):
         elif status == 200:        
             try:
                 if ctype.startswith('text/'):
-                    response = urllib2.urlopen(url)        
-                    page = response.read()                        
-                    response.close()
-                    soup = BeautifulSoup(page)
+                    # Fast Title Search
+                    found = None
+                    buff = ''
+                    m = 0
+                    n = 512     # Chunk Size
+                    while True:
+                        req = urllib2.Request(url)
+                        req.headers['Range'] =  'bytes=%s-%s' % (m, m+n-1)
+                        response = urllib2.urlopen(req)    
+                        buff += response.read()                        
+                        response.close()
+                        soup = BeautifulSoup(buff)
+                        found = soup.find('title')
+                        m += n
+                        # If PARTIAL OK (206) and <title> has an ending tag
+                        if response.code == 200 or (response.code == 206 and found and found.nextSibling):
+                            break
                     if only_title:      
-                        return 'Title: %s' % htmlx.unescape(''.join(soup.find('title').findAll(text=True)))
+                        return 'Title: %s' % htmlx.unescape(u''.join(found.findAll(text=True))).encode('utf-8')
                     else:
-                        return '%s : [%s]' % (htmlx.unescape(''.join(soup.find('title').findAll(text=True))), min_url(url))
+                        return '%s : [%s]' % (htmlx.unescape(u''.join(found.findAll(text=True))).encode('utf-8'), min_url(url))
                 else:                    
                     return 'Title not available for content type %s : url %s' % (ctype, min_url(url))
             except Exception:

@@ -3,7 +3,7 @@ Created on Jul 30, 2012
 
 @author: Nisheeth
 '''
-from QircBot.Interfaces.BotInterface import EnforcerInterface
+from QircBot.Interfaces.BotInterface import EnforcerInterface, PrivilegedInterface
 from Module import BaseDynamicExtension, ModuleResult
 from Util.SimpleArgumentParser import SimpleArgumentParser
 from Extensions import Search, Calc, Define, Weather, Locate, Url, Roll, User, Vote, Game, AI
@@ -13,7 +13,37 @@ from Util import htmlx
 from datetime import datetime
 import re
 
-
+class HelpModule(BaseDynamicExtension):
+    '''
+        Extension for displaying help
+    '''
+    def build_meta(self, metadata):
+        metadata.key = "help"
+        metadata.aliases = ["help"]
+        metadata.prefixes = ["!"]
+        metadata.desc = "Show this help"
+        metadata.interface = PrivilegedInterface
+    
+    def build_parser(self):
+        return SimpleArgumentParser(prog="!help")
+        
+    def output(self, nick, host, auth, powers, options):
+        max_len = 1
+        l = [] 
+        for _, v in self._bot.modules():
+            if len(v.aliases):
+                p = ''.join(v.prefixes)
+                if len(p) > 1:
+                    p = '[%s]' % p
+                p = '%s%s' % (p, (', '+p).join(v.aliases))
+                if len(p) > max_len:
+                    max_len = len(p)
+                l.append((p, v.desc))
+        s = ''
+        for m in l:
+            s += ('%-' + str(max_len+2) + 's%s\n') % m
+        self._bot.send_multiline(self._bot.notice, nick, s.rstrip())
+            
 class SearchModule(BaseDynamicExtension):
     '''
         Extension for performing searches
@@ -23,6 +53,7 @@ class SearchModule(BaseDynamicExtension):
         metadata.key = "search"
         metadata.aliases = ["search", "s", "g"]
         metadata.prefixes = ["!"]
+        metadata.desc = "Search for a term on various sites"
                 
     def build_parser(self):
         parser = SimpleArgumentParser(prog="!search")
@@ -78,6 +109,7 @@ class CalculationModule(BaseDynamicExtension):
         metadata.key = "calc"
         metadata.aliases = ["calc", "c"]
         metadata.prefixes = ["!"]
+        metadata.desc = "Perform some calculation"
         
     def build_parser(self):
         parser = SimpleArgumentParser(prog="!calc")
@@ -112,8 +144,9 @@ class DefinitionModule(BaseDynamicExtension):
     '''
     def build_meta(self, metadata):
         metadata.key = "define"
-        metadata.aliases = ["urban", "d"]
+        metadata.aliases = ["define", "urban", "d"]
         metadata.prefixes = ["!"]
+        metadata.desc = "Get the meaning, antonyms, etc. for a term"
         
     def build_parser(self):
         parser = SimpleArgumentParser(prog="!define")
@@ -159,6 +192,7 @@ class QuoteModule(BaseDynamicExtension):
         metadata.key = "quote"
         metadata.aliases = ["quote", "q"]
         metadata.prefixes = ["!"]
+        metadata.desc = "Search for a quote"
         
     def build_parser(self):
         parser = SimpleArgumentParser(prog="!quote")
@@ -195,6 +229,7 @@ class WeatherModule(BaseDynamicExtension):
         metadata.key = "weather"
         metadata.aliases = ["weather", "w"]
         metadata.prefixes = ["!"]
+        metadata.desc = "Get weather forecasts for a location"
         
     def build_parser(self):
         parser = SimpleArgumentParser(prog="!weather")
@@ -227,6 +262,7 @@ class LocationModule(BaseDynamicExtension):
         metadata.key = "location"
         metadata.aliases = ["locate"]
         metadata.prefixes = ["!"]
+        metadata.desc = "Locate an IP or coordinate"
         
     def build_parser(self):
         parser = SimpleArgumentParser(prog="!locate")
@@ -257,7 +293,7 @@ class UrlModule(BaseDynamicExtension):
     '''    
     
     def __init__(self, interface):
-        super(UrlModule, self).__init__(interface)
+        super(UrlModule, self).__init__(interface)        
         self._last5urls = []
         # Naive url matcher
         #self._regex_url = re.compile(r'\b((?:telnet|ftp|rtsp|https?)://[^/]+[-\w_/?=%&+;#\\@.]*)')
@@ -273,6 +309,7 @@ class UrlModule(BaseDynamicExtension):
         metadata.aliases = ["url"]
         metadata.prefixes = ["!"]
         metadata.listeners = ["msg"]
+        metadata.desc = "Perform operation on an url"
         
     def event(self, key, channel, user, args):
         if key == "msg":            
@@ -370,6 +407,7 @@ class UserModule(BaseDynamicExtension):
         metadata.key = "user"
         metadata.aliases = ["user"]
         metadata.prefixes = ["!"]
+        metadata.desc = "Perform operation related to user"
         metadata.interface = EnforcerInterface
         metadata.listeners = ["msg", "userlist", "join", "kick", "part", "quit", "exit"]
         
@@ -438,14 +476,22 @@ class UserModule(BaseDynamicExtension):
                     if nicks is None:
                         r = "No I haven't seen %s lately" % usr 
                     else:
-                        if quit_reason is None:
+                        if quit_reason is None:                            
                             if self._bot.names.has_key(usr):
                                 if str(self._bot.names[usr]) != req:
                                     r = '%s is impersonating %s [%s] at the moment' % (self._bot.names[usr], usr, ', '.join(nicks))
                                 else:
                                     r = '%s [%s] is right here' % (usr, ', '.join(nicks))
                             else:
-                                r = '%s [%s] was last seen joining %s ago, but he\'s not here now' % (usr, ', '.join(nicks), Chronograph.time_ago(datetime.strptime(timestamp, '%Y-%m-%d %H:%M:%S')))
+                                k = None
+                                for n in nicks:
+                                    if self._bot.names.has_key(n):
+                                        k = nick
+                                        break
+                                if k:
+                                    r = '%s [%s] is right here under the nick %s' % (usr, ', '.join(nicks), k)
+                                else:
+                                    r = '%s [%s] was last seen joining %s ago, but he\'s not here now' % (usr, ', '.join(nicks), Chronograph.time_ago(datetime.strptime(timestamp, '%Y-%m-%d %H:%M:%S')))
                         else:                         
                             r = '%s [%s] was last seen: %s ago (%s)' % (usr, ', '.join(nicks), Chronograph.time_ago(datetime.strptime(timestamp, '%Y-%m-%d %H:%M:%S')), quit_reason)
                     
@@ -495,6 +541,7 @@ class VoteModule(BaseDynamicExtension):
         metadata.key = "vote"
         metadata.aliases = ["vote"]
         metadata.prefixes = ["!"]
+        metadata.desc = "Start a vote"
         metadata.interface = EnforcerInterface
         metadata.listeners = ["msg"]
     
@@ -583,6 +630,7 @@ class RollModule(BaseDynamicExtension):
         metadata.key = "roll"
         metadata.aliases = ["roll"]
         metadata.prefixes = ["!"]
+        metadata.desc = "Roll a dice"
         
     def build_parser(self):
         parser = SimpleArgumentParser(prog="!roll")
@@ -618,6 +666,7 @@ class GameModule(BaseDynamicExtension):
         metadata.key = "game"
         metadata.aliases = ["game"]
         metadata.prefixes = ["!"]
+        metadata.desc = "Start a game"
         metadata.listeners = ["msg"]
 
     def event(self, key, channel, user, args):
@@ -663,7 +712,7 @@ class GameModule(BaseDynamicExtension):
         m = re.search(r'\+ ?([\S]*)', msg)
         if m:
             self._werewolf.lynch(nick, m.group(1))
-            
+       
 class CleverModule(BaseDynamicExtension):
     '''
         Extension for performing word operations

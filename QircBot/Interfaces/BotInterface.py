@@ -54,7 +54,7 @@ class VerbalInterface(BaseInterface):
     @property
     def sqlite_db(self):
         return self.db
-                    
+   
 class AuthorityInterface(BaseInterface):
     '''
         Presents a authority-only interface of bot
@@ -108,7 +108,11 @@ class PrivilegedInterface(EnforcerInterface):
         self.user_auth = bot.user_auth
         self.user_list = bot.user_list        
         self.module = bot.get_module
+        self.modules = bot.get_modules
         self.module_keys = bot.get_module_keys
+        self.add_retry_channel = bot.add_retry_channel
+        self.remove_retry_channel = bot.remove_retry_channel
+        self.retry_channels = bot.retry_channels 
         self.reload_extensions = bot.reload_extensions        
         self.reload_commands = bot.reload_commands
         self.save_state = bot.save_state

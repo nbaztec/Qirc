@@ -22,8 +22,9 @@ class ModuleMetadata(object):
         self._key = None
         self._prefixes = []
         self._aliases = []
+        self._desc = ""
         self._listeners = []
-        self._interface = VerbalInterface        
+        self._interface = VerbalInterface 
         
     @property
     def key(self):
@@ -32,6 +33,10 @@ class ModuleMetadata(object):
     @property
     def prefixes(self):
         return self._prefixes
+    
+    @property
+    def desc(self):
+        return self._desc
     
     @property
     def aliases(self):
@@ -52,6 +57,10 @@ class ModuleMetadata(object):
     @prefixes.setter
     def prefixes(self, value):
         self._prefixes = value
+        
+    @desc.setter
+    def desc(self, value):
+        self._desc = value
     
     @aliases.setter
     def aliases(self, value):
@@ -121,7 +130,7 @@ class BaseModule(object):
     def parser(self):
         return self._parser
             
-    def help(self):
+    def desc(self):
         return self._parser.format_help()
     
     @abstractmethod
@@ -213,6 +222,14 @@ class BaseDynamicExtension(BaseToggleModule):
     @property
     def aliases(self):
         return self._metadata.aliases
+    
+    @property
+    def prefixes(self):
+        return self._metadata.prefixes
+    
+    @property
+    def desc(self):
+        return self._metadata.desc
     
     @property
     def listeners(self):

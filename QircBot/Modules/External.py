@@ -19,6 +19,7 @@ class ConvertWeightModule(BaseDynamicExtension):
         metadata.key = "demo_weight"
         metadata.aliases = ["kglb"]
         metadata.prefixes = ["!."]
+        metadata.desc = "Perform KG-LB conversions"
             
     def build_parser(self):
         parser = SimpleArgumentParser(prog="!kglb")
@@ -102,7 +103,10 @@ class SubstModule(BaseDynamicExtension):
                 for nick, line in self._last5lines:
                     l, c = re.subn(m.group(1), m.group(2), line, 1 if m.group(3).find('g') == -1 else 0, re.I if m.group(3).find('i') != -1 else 0)
                     if c:
-                        self.bot.say('%s meant "%s"' % (nick, l))                        
+                        if nick == user.nick:
+                            self.bot.say('%s meant "%s"' % (nick, l))
+                        else:                        
+                            self.bot.say('%s implies %s meant "%s"' % (user.nick, nick, l))
                         break
             else:
                 self._last5lines.insert(0, (user.nick, args))
@@ -118,6 +122,7 @@ class TimeModule(BaseDynamicExtension):
         metadata.key = "demo_now"
         metadata.aliases = ["now"]
         metadata.prefixes = ["!"]
+        metadata.desc = "Display current time"
             
     def build_parser(self):
         parser = SimpleArgumentParser(prog="!now")

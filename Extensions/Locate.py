@@ -10,7 +10,7 @@ from Util.BeautifulSoup import BeautifulSoup
 from Util.Log import Log
 
 appid = {
-            'ipinfo'    : 'XXXX'
+            'ipinfo'    : ''
         }
    
 def iplocate(ip): 

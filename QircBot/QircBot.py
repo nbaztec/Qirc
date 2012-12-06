@@ -1,8 +1,8 @@
 '''
 Created on Jun 7, 2012
-Updated on Oct 16, 2012
+Updated on Nov 28, 2012
 @author: Nisheeth
-@version: 4.0.1 Ethereal
+@version: 4.0.6 Ethereal
 '''
 
 from Modules.Manager import DynamicExtensionManager, DynamicCommandManager
@@ -169,7 +169,7 @@ class BaseBot(object):
         self._lock = Lock()                     # mutex _lock [unused]                
         self.orig_nick = self.params['nick']    # Store original nick for temp logins        
         
-        self._cv_exit = Condition()
+        self._cv_ping_exit = Condition()
         
         BaseBot.reset_flags(self)               # Reset bot state
         
@@ -266,20 +266,20 @@ class BaseBot(object):
         '''
             @summary: Synchronous reading via selecting 
         '''        
-        try:
+        try:            
             self._read_buffer = ''
             run_read = True
             chunk = '+'                             # Initially chunk not empty
-            while run_read and not self.close_requested() and not self.restart_requested():
+            while run_read and self._alive and not self.close_requested() and not self.restart_requested():
                 if select.select([self._sock], [], [], 10)[0]:
                     self.last_read = time.time()        # Last read time
-                    chunk = self._sock.recv(2048)              
+                    chunk = self._sock.recv(2048)
                     if chunk == '':
                         raise Exception('Nothing received. Connection broken.')
-                    else:                                    # If received something
+                    else:                                    # If received something                        
                         self._read_buffer += chunk                
                         temp = self._read_buffer.split("\n")
-                        self._read_buffer = temp.pop()            
+                        self._read_buffer = temp.pop()                        
                         run_read = self.parse_recv(temp)     # Dispatch message for parsing
                     
         except Exception:
@@ -352,8 +352,23 @@ class ActiveBot(BaseBot):
          
         self._op_actions = ThreadQueue()                   # ThreadQueue for OP functions
         self._multisend_lock = Lock()                      # Thread lock for avoiding floodkicks on send_multiline()
-        self._cv_userlist = Condition()                    # Condition Variable for requesting userlist                
+        self._cv_userlist = Condition()                    # Condition Variable for requesting userlist
+        self._cv_autojoin = Condition()                    # Condition Variable for requesting userlist
     
+    def notify_all_threads(self):
+        '''
+            @summary: Notifies all waiting threads
+        '''
+        self._cv_ping_exit.acquire()
+        self._cv_ping_exit.notify_all()
+        self._cv_ping_exit.release()        
+        self._cv_userlist.acquire()
+        self._cv_userlist.notify_all()
+        self._cv_userlist.release()
+        self._cv_autojoin.acquire()
+        self._cv_autojoin.notify_all()
+        self._cv_autojoin.release()        
+        
     def current_userlist(self):
         '''
             @summary: Returns the userlist for the current channel
@@ -380,6 +395,7 @@ class ActiveBot(BaseBot):
         self._pong_recv = True
         self._ghost = False
         self._names = {}
+        self._retry_channels = {}
         if bubble:
             BaseBot.reset_flags(self)
         
@@ -398,21 +414,45 @@ class ActiveBot(BaseBot):
         self._cv_userlist.notify()
         self._cv_userlist.release()
     
+    def autojoin_retry(self):
+        '''
+            @summary: Retries joining channels
+        '''               
+        while self._alive and not self.close_requested() and not self.restart_requested():
+            try:    
+                self._cv_autojoin.acquire()
+                self._cv_autojoin.wait(10)        # Wait every 10 seconds
+                self._cv_autojoin.release()
+                if len(self._retry_channels) and self._alive and not self.close_requested() and not self.restart_requested():                    
+                    for k in self._retry_channels.keys():
+                        self._retry_channels[k] = (self._retry_channels[k][0], self._retry_channels[k][1] + 10)
+                        if self._retry_channels[k][0] <= self._retry_channels[k][1]:                     # If waited more than threshold
+                            self._retry_channels[k] = (min(self._retry_channels[k][0] * 1.25, 180), 0)  # Exponential backoff, Try joining                            
+                            self.join(k)                                                    
+                                         
+            except Exception, e:
+                Log.error(e)
+        Log.write('Terminated: autojoin_retry()')
+                
     def userlist_buildup(self):
         '''
             @summary: Builds a {nick : username} dict for all the members in current channel at periodic intervals
-        '''                
-        try:            
+        '''                        
+        try:
+
             self._cv_userlist.acquire()
             self._cv_userlist.wait()        # Wait for signal to proceed
             self._cv_userlist.release()
-            time.sleep(10)                  # Delay 10 seconds to receive NAMES
+            if self._alive and not self.close_requested() and not self.restart_requested():
+                self._cv_userlist.acquire()
+                self._cv_userlist.wait(10)        # Delay 10 seconds to receive NAMES
+                self._cv_userlist.release()                  
         except:
             pass
-            
+        
         self._request_userlist = False
-        userlist_pending = userlist_req = False
-        while self._alive and not self.close_requested() and not self.restart_requested():
+        userlist_pending = userlist_req = False        
+        while self._alive and not self.close_requested() and not self.restart_requested():                    
             try:                                                
                 userlist_req = False
                 l = []                                                      # Check if any nick doesn't have the username entry
@@ -422,9 +462,10 @@ class ActiveBot(BaseBot):
                 if len(l):                                                  # Request hostnames of empty nicks
                     userlist_req = userlist_pending = True
                     for n in chunk(l, 5):
-                        self.userhosts(' '.join(n))                    
+                        self.userhosts(' '.join(n))
+                    Log.write('Requesting Userlist: %s' % self._names.keys(), 'D')
                 #else:                    
-                    Log.write('Userlist: %s' % self._names, 'D')
+                #    Log.write('Complete Userlist: %s' % self._names.keys(), 'D')
                 
                 self._cv_userlist.acquire()
                 if userlist_req:                    
@@ -440,7 +481,8 @@ class ActiveBot(BaseBot):
                     self._cv_userlist.wait(60)                              # Sleep for 60 seconds
                 self._cv_userlist.release()                    
             except Exception, e:
-                Log.error(e)
+                Log.error(e)            
+        Log.write('Terminated: userlist_buildup()')
                                         
             
     def server_ping(self):        
@@ -450,30 +492,30 @@ class ActiveBot(BaseBot):
         while self._pong_recv and not self.close_requested() and not self.restart_requested():           # If PONG was received for the previous PING, if not the connection is probably dead            
             self._pong_recv = False
             try:                        
-                self._cv_exit.acquire()
-                self._cv_exit.wait(60)                                  # PING every 60 seconds
-                self._cv_exit.release()                
+                self._cv_ping_exit.acquire()
+                self._cv_ping_exit.wait(60)                                  # PING every 60 seconds
+                self._cv_ping_exit.release()                
                         
                 if not self.close_requested() and not self.restart_requested():
                     self.ping()                                         # Send PING                
-                    self._cv_exit.acquire()
-                    self._cv_exit.wait(30)                              # Wait 30 seconds for a PONG
-                    self._cv_exit.release()                 
+                    self._cv_ping_exit.acquire()
+                    self._cv_ping_exit.wait(30)                              # Wait 30 seconds for a PONG
+                    self._cv_ping_exit.release()                 
             except:
                 pass
         
         self._alive = False
         if not self.close_requested() and not self.restart_requested():
-            self._cv_exit.acquire()
-            self._cv_exit.notify_all()
-            self._cv_exit.release()
+            self._cv_ping_exit.acquire()
+            self._cv_ping_exit.notify_all()
+            self._cv_ping_exit.release()
         '''
         try:
             self.ping()                                                     # Precautionary PING to unblock the socket.recv()
         except:
             pass
         '''
-        Log.write('Server Failed to respond to PONG', 'E')
+        Log.write('Server failed to respond to PONG')
             
     def queue_op_add(self, target, args=(), kwargs={}):
         '''
@@ -766,53 +808,57 @@ class ActiveBot(BaseBot):
             @param recv: Messages from IRC
             @summary: Parses the messages coming from the IRC to take suitable actions
         '''
+        loop = True
         for line in recv:
-            line=str.rstrip(line)        # Strip '\r' characters if present
-            line=str.split(line)         # Split elements
-            Log.write(' '.join(line))    # Print line
-                
-            # Important Messages
-            if(line[0] == "PING"):                          # PING from server
-                return self.cmd_ping(line) 
-            elif(line[1] == "PONG"):                        # PONG from server
-                return self.cmd_pong(line)
-            elif(line[1] == "QUIT"):                        # QUIT
-                return self.cmd_quit(line)
-            elif(line[1] == "PART"):                        # PART
-                return self.cmd_part(line)
-            elif(line[1] == "JOIN"):                        # JOIN
-                return self.cmd_join(line)
-            elif(line[1] == "KICK"):                        # KICK
-                return self.cmd_kick(line)
-            elif(line[1] == "NOTICE"):                      # NOTICE
-                return self.cmd_notice(line)
-            elif(line[1] == "NICK"):                        # NICK
-                return self.cmd_nick(line)     
-            elif(line[1] == "MODE"):
-                return self.cmd_mode(line) 
-                
-            # Control Messages
-            elif line[1] == "433":                          # NICK already in use                
-                return self.stat_nickuse(line)
-            elif line[1] == "375":                          # Start of /MOTD command
-                return self.stat_startmotd(line)
-            elif line[1] == "371" or line[1] == "372":      # MOTD                
-                self.stat_motd(line)
-            elif line[1] == "376":                          # End of /MOTD command
-                return self.stat_endmotd(line)
-            elif line[1] == "353":                          # NAMES
-                self.stat_names(line)
-            elif line[1] == "366":                          # End of /NAMES list
-                return self.stat_endnames(line)              
-            elif line[1] == "302":                          # USERHOST
-                self.stat_userhost(line)            
-            elif line[1] == "462":                          # Already registered
-                return self.stat_already_registered(line)   
-            # Basic Messages
-            elif line[1] == "PRIVMSG": 
-                self.cmd_privmsg(line)
+            line=line.rstrip()        # Strip '\r' characters if present
+            if len(line):
+                Log.write(line)    # Print line
+                line=str.split(line)         # Split elements            
+                    
+                # Important Messages
+                if(line[0] == "PING"):                          # PING from server
+                    loop = loop and self.cmd_ping(line) 
+                elif(line[1] == "PONG"):                        # PONG from server
+                    loop = loop and self.cmd_pong(line)
+                elif(line[1] == "QUIT"):                        # QUIT
+                    loop = loop and self.cmd_quit(line)
+                elif(line[1] == "PART"):                        # PART
+                    loop = loop and self.cmd_part(line)
+                elif(line[1] == "JOIN"):                        # JOIN
+                    loop = loop and self.cmd_join(line)
+                elif(line[1] == "KICK"):                        # KICK
+                    loop = loop and self.cmd_kick(line)
+                elif(line[1] == "NOTICE"):                      # NOTICE
+                    loop = loop and self.cmd_notice(line)
+                elif(line[1] == "NICK"):                        # NICK
+                    loop = loop and self.cmd_nick(line)     
+                elif(line[1] == "MODE"):
+                    loop = loop and self.cmd_mode(line) 
+                    
+                # Control Messages
+                elif line[1] == "433":                          # NICK already in use                
+                    loop = loop and self.stat_nickuse(line)
+                elif line[1] == "375":                          # Start of /MOTD command
+                    loop = loop and self.stat_startmotd(line)
+                elif line[1] == "371" or line[1] == "372":      # MOTD                
+                    loop = loop and self.stat_motd(line)
+                elif line[1] == "376":                          # End of /MOTD command
+                    loop = loop and self.stat_endmotd(line)
+                elif line[1] == "353":                          # NAMES
+                    loop = loop and self.stat_names(line)
+                elif line[1] == "366":                          # End of /NAMES list
+                    loop = loop and self.stat_endnames(line)              
+                elif line[1] == "302":                          # USERHOST
+                    loop = loop and self.stat_userhost(line)            
+                elif line[1] == "462":                          # Already registered
+                    loop = loop and self.stat_already_registered(line)
+                elif line[1] in ["471", "473", "474", "475"]:   # Full, Invite, Banned, Key-Req
+                    loop = loop and self.err_nojoin(line) 
+                # Basic Messages
+                elif line[1] == "PRIVMSG": 
+                    loop = loop and self.cmd_privmsg(line)
                                                            
-        return True
+        return loop
     
     def cmd_ping(self, line):
         '''
@@ -981,8 +1027,15 @@ class ActiveBot(BaseBot):
             @summary: ERR_ALREADYREGISTERED is received          
         '''
         self.identify()                         # Normal join, just identify
-        return True   
-        #return self.stat_endmotd(line)
+        return True
+    
+    def err_nojoin(self, line):
+        '''
+            @param line: The text received broken into tokens
+            @summary: Content of ERR_CHANNELISFULL, ERR_INVITEONLYCHAN, ERR_BANNEDFROMCHAN and ERR_BADCHANNELKEY
+        '''
+        self.on_bot_nojoin(line[1], line[3], ' '.join(line[4:]).lstrip(':'))
+        return True
     
     def recv_ping(self, server):
         '''
@@ -1026,14 +1079,15 @@ class ActiveBot(BaseBot):
             self.on_bot_part(channel)
         return True
     
-    def recv_join(self, user, channel ):
+    def recv_join(self, user, channel):
         '''
             @param user: The user that joined
             @param channel: The channel that was joined to
-        '''        
-        u = User(user, simple=True)
-        if self._names.has_key(u.nick):
-            self._names[u.nick] = u        
+        '''
+        if self._retry_channels.has_key(channel):
+            self._retry_channels.pop(channel)
+        u = User(user, simple=True)        
+        self._names[u.nick] = u        
         self.on_userlist_update()
         if u.nick == self.params['nick']:
             self._names = {}
@@ -1054,7 +1108,11 @@ class ActiveBot(BaseBot):
             self._names.pop(user)
         self.on_userlist_update()
         if user == self.params['nick']:                         # If bot is kicked
-            self.join(channel)
+            self._retry_channels[channel] = (10, 0)
+            self._cv_autojoin.acquire()
+            self._cv_autojoin.notify_all()
+            self._cv_autojoin.release()
+            #self.join(channel)
         return True
     
     def recv_notice(self, source, broadcast, msg):
@@ -1113,10 +1171,13 @@ class ActiveBot(BaseBot):
     def on_connected(self):
         '''
             @summary: Called when the bot is connected
-        '''
+        '''        
         self._has_quit = self._restart_req = False
+        self._alive = True        
+        Log.write('Starting worker threads')
         Thread(target=self.server_ping, name='ActiveBot.server_ping').start()               # Start pinger thread
         Thread(target=self.userlist_buildup, name='ActiveBot.userlist_buildup').start()     # Start userlist monitoring thread
+        Thread(target=self.autojoin_retry, name='ActiveBot.autojoin_retry').start()         # Start autojoin retry thread
     
     def on_bot_join(self, channel):
         '''
@@ -1163,6 +1224,16 @@ class ActiveBot(BaseBot):
         '''
         pass
     
+    def on_bot_nojoin(self, code, channel, reason):
+        '''            
+            @param code: The error code
+            @param channel: The channel
+            @param reason: The reason for error
+            @summary: Called when the the userlist is changed
+        '''
+        if channel not in self._retry_channels: 
+            self._retry_channels[channel] = (10, 0)     # Next try, Duration left
+    
     def on_userlist_complete(self):
         '''            
             @summary: Called when the the userlist has all entries completed
@@ -1173,6 +1244,7 @@ class ActiveBot(BaseBot):
         '''            
             @summary: Called when the the userlist is changed
         '''
+        Log.write('Updated Userlist: %s' % self._names.keys(), 'D')
         pass
     
 class ArmageddonBot(ActiveBot):
@@ -1384,10 +1456,23 @@ class ArmageddonBot(ActiveBot):
             @param key: Returns a module specified by the key
             @param mgr_type: The manager to select - extension/command (0/1)
         '''
+        try:
+            if mgr_type == 0:
+                return self._extmgr.module(key)
+            elif mgr_type == 1:
+                return self._cmdmgr.module(key)
+        except:
+            return None
+        
+    def get_modules(self, mgr_type=0):
+        '''            
+            @param mgr_type: The manager to select - extension/command (0/1)
+            @return: Iterator on modules
+        '''
         if mgr_type == 0:
-            return self._extmgr.module(key)
+            return self._extmgr.modules()
         elif mgr_type == 1:
-            return self._cmdmgr.module(key)
+            return  self._cmdmgr.modules()
         
     def get_module_keys(self, mgr_type=0, enabled=True):
         '''            
@@ -1548,6 +1633,28 @@ class ArmageddonBot(ActiveBot):
             if self._masters.has_key(role):
                 return self._masters[role]['auth']     
             
+    def add_retry_channel(self, channel):
+        '''
+            @param channel: Channel name
+        '''
+        self._retry_channels[channel] = (10, 0)
+        
+    def remove_retry_channel(self, channel):
+        '''
+            @param channel: Channel name
+        '''
+        if self._retry_channels.has_key(channel):
+            self._retry_channels.pop(channel)
+            return True
+        else:
+            return False;
+        
+    def retry_channels(self):
+        '''
+            @returns: List of channels
+        '''
+        return self._retry_channels.keys()
+        
     # Overriden recv methods
     def reset_flags(self, bubble=True, build=True):
         '''
@@ -1750,23 +1857,15 @@ class ArmageddonBot(ActiveBot):
         
         if not self.close_requested():                        # Restart was requested
             self._restart_req = True
-            self._cv_exit.acquire()
-            self._cv_exit.notify_all()
-            self._cv_exit.release()
-            self._cv_userlist.acquire()
-            self._cv_userlist.notify_all()
-            self._cv_userlist.release()
+            self._sock.close()
+            self.notify_all_threads()
+            time.sleep(5)                                     # Wait 5 seconds
             Log.write("Resurrecting...")            
             self._sock = socket.socket();
             Thread(target=self.start, name='start').start()
         else:
             self.call_listeners('exit', None, None, None)
-            self._cv_exit.acquire()
-            self._cv_exit.notify_all()
-            self._cv_exit.release()
-            self._cv_userlist.acquire()
-            self._cv_userlist.notify_all()
-            self._cv_userlist.release()
+            self.notify_all_threads()
             Log.write('Bits thou art, to bits thou returnest, was not spoken of....Boom! Owww. *Dead*')            
                             
     def on_bot_mode_set(self):        
@@ -1823,23 +1922,17 @@ class ArmageddonBot(ActiveBot):
             @param host: Hostname of user
             @param cmd: Command from standard input
             @summary: Parses the command from PM to bot
-        '''                        
-        if cmd == 'help':
-            if user.powers is None:
-                self.notice(user.nick, 'Commands are: help, join, part, quit, flag, enforce, module, users, op, say, kick, ban, armageddon')
-            else:
-                self.notice(user.nick, 'Commands are: %s' % ', '.join(user.powers))
-        else:            
-            (key, result, success) = self._cmdmgr.parse_line(user, cmd) or (None, None, None)
-            if key:            
-                if result:
-                    self.send_multiline(self.notice, user.nick, result.output)
-            else:
-                if success is None:
-                    if user.powers is None:
-                        self.send(cmd)
-                    else:
-                        self.notice(user.nick, 'You are not authorized to perform this operation. Type /msg %s help to see your list of commands' % self.params['nick'])
+        '''
+        (key, result, success) = self._cmdmgr.parse_line(user, cmd) or (None, None, None)
+        if key:            
+            if result:
+                self.send_multiline(self.notice, user.nick, result.output)
+        else:
+            if success is None:
+                if user.powers is None:
+                    self.send(cmd)
+                else:
+                    self.notice(user.nick, 'You are not authorized to perform this operation. Type /msg %s help to see your list of commands' % self.params['nick'])
         return True
     
     def parse_msg(self, user, msg):
@@ -1850,31 +1943,13 @@ class ArmageddonBot(ActiveBot):
             @param msg: Message for bot
             @summary: Specifies additional rules as the general purpose responses
         '''
-        Log.write("Parse Message %s" % msg)        
-        if msg == '!help':             
-            self.send_multiline(self.notice, user.nick, """Enter <command> -h for help on the respective command
- Commands: 
-    !help             Shows this help
-    !search, !s, !g   Search for a term on various sites
-    !calc, !c         Perform some calculation
-    !define, !d       Get the meaning, antonyms, etc. for a term
-    !quote            Get a quote
-    !weather, !w      Get weather and forecasts for a location
-    !locate, !l       Locate a user, IP or coordinate
-    !url              Perform operation on an url, 
-                      Use %N (max 5) to access an earlier url
-    !user             Perform operation related to user
-    !vote             Start a vote
-    !roll             Roll a dice
-    !game             Begin a game""")    
-    
-        else:
-            _, result, success = self._extmgr.parse_line(user, msg) or (None, None, None)            
-            if not success:
-                if result:
-                    self.send_multiline(self.notice, user.nick, result.output)                                                    
-            elif result:
-                self.say(result.output)
+        Log.write("Parse Message %s" % msg)              
+        _, result, success = self._extmgr.parse_line(user, msg) or (None, None, None)            
+        if not success:
+            if result:
+                self.send_multiline(self.notice, user.nick, result.output)                                                    
+        elif result:
+            self.say(result.output)
 
 
 # Use the final Bot as QircBot

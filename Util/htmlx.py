@@ -14,9 +14,9 @@ import unicodedata
 # @return The plain text, as a Unicode string, if necessary.
 
 def unescape(text):
-    def fixup(m):
-        text = m.group(0)
-        if text[:2] == "&#":
+    def fixup(m):        
+        text = m.group(0)        
+        if text[:2] == "&#":            
             # character reference
             try:
                 if text[:3] == "&#x":
@@ -34,7 +34,7 @@ def unescape(text):
         return text # leave as is        
     return re.sub("&#?\w+;", fixup, text)
 
-def normalized_ascii(s):
+def normalized_ascii(s):        
         return unicodedata.normalize('NFKD', s).encode('ascii', 'strict')
     
 def fixjson(text):

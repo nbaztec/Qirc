@@ -11,8 +11,108 @@ from Module import BaseDynamicCommand
 from Util.SimpleArgumentParser import SimpleArgumentParser
 from Extensions import Enforce
 from datetime import datetime
-import os
+import os, gc, sys
 
+#from meliae import scanner
+#import psutil
+
+
+class MemDumpCommandModule(BaseDynamicCommand):
+    '''
+        Extension for displaying help
+    '''
+    def build_meta(self, metadata):
+        metadata.key = "memdump"
+        metadata.aliases = ["memdump"]
+        metadata.desc = "Memory Dump"    
+    
+    def build_parser(self):
+        return SimpleArgumentParser(prog="memdump")
+        
+    def output(self, nick, host, auth, powers, options):
+        #scanner.dump_all_objects("memory_dump")
+        with open("memory_dump", "w") as f:            
+            #f.write('%s\n' % psutil.Process(os.getpid()).get_memory_info())
+            for obj in gc.get_objects():
+                i = id(obj)
+                size = sys.getsizeof(obj, 0)
+                #    referrers = [id(o) for o in gc.get_referrers(obj) if hasattr(o, '__class__')]
+                referents = [id(o) for o in gc.get_referents(obj) if hasattr(o, '__class__')]
+                if hasattr(obj, '__class__'):
+                    cls = str(obj.__class__)
+                    f.write('%s\n' % {'id': i, 'class': cls, 'size': size, 'referents': referents})
+
+class HelpCommandModule(BaseDynamicCommand):
+    '''
+        Extension for displaying help
+    '''
+    def build_meta(self, metadata):
+        metadata.key = "help"
+        metadata.aliases = ["help"]
+        metadata.desc = "Show this help"    
+    
+    def build_parser(self):
+        return SimpleArgumentParser(prog="help")
+        
+    def output(self, nick, host, auth, powers, options):
+        max_len = 1
+        l = []
+        if powers is None:
+            for _, v in self._bot.modules(1):
+                if len(v.aliases):
+                    p = ''.join(v.prefixes)
+                    if len(p) > 1:
+                        p = '[%s]' % p
+                    p = '%s%s' % (p, (', '+p).join(v.aliases))
+                    if len(p) > max_len:
+                        max_len = len(p)
+                    l.append((p, v.desc))
+        else:
+            for pkey in powers:                
+                v = self._bot.module(pkey, 1)
+                if v and len(v.aliases):                    
+                    p = ', '.join(v.aliases)
+                    if len(p) > max_len:
+                        max_len = len(p)
+                    l.append((p, v.desc))
+        s = ''
+        for m in l:
+            s += ('%-' + str(max_len+2) + 's%s\n') % m
+        self._bot.send_multiline(self._bot.notice, nick, s.rstrip())
+
+
+class PersistentJoinModule(BaseDynamicCommand):
+    '''
+        Module for persistent joining
+    '''
+    def build_meta(self, metadata):
+        metadata.key = "pjoin"
+        metadata.aliases = ["pjoin"]
+        metadata.desc = "Add/Remove a channel from persitent joins"
+        
+    def build_parser(self):
+        parser = SimpleArgumentParser(prog="pjoin")
+        parser.add_argument("channels", nargs="*", help="Channel names", metavar="CHANNEL")
+        parser.add_argument("-l", "--list", dest="list", action="store_true", default=True, help="List channel(s) to persitent join")
+        parser.add_argument("-a", "--add", dest="add", action="store_true", help="Add channel(s) to persitent join")
+        parser.add_argument("-r", "--remove", dest="remove", action="store_true", help="Remove channel(s) to persitent join")
+        return parser
+    
+    def output(self, nick, host, auth, powers, options):        
+        if options.add:
+            for chan in options.channels:
+                self._bot.add_retry_channel(chan)
+            self._bot.notice(nick, '%d channel(s) have been added' % len(options.channels))
+        elif options.remove:
+            c = 0
+            for chan in options.channels:
+                if self._bot.remove_retry_channel(chan):
+                    c += 1
+            self._bot.notice(nick, '%d channel(s) have been removed' % c)
+        else:
+            self._bot.notice(nick, 'Retry Channels: %s' % ', '.join(self._bot.retry_channels()))
+        
+                   
 class JoinModule(BaseDynamicCommand):
     '''
         Module for joining
@@ -20,6 +120,7 @@ class JoinModule(BaseDynamicCommand):
     def build_meta(self, metadata):
         metadata.key = "join"
         metadata.aliases = ["join"]
+        metadata.desc = "Join a channel"
         
     def build_parser(self):
         parser = SimpleArgumentParser(prog="join")
@@ -38,6 +139,7 @@ class PartModule(BaseDynamicCommand):
     def build_meta(self, metadata):
         metadata.key = "part"
         metadata.aliases = ["part"]
+        metadata.desc = "Part from a channel"
         
     def build_parser(self):
         parser = SimpleArgumentParser(prog="part")
@@ -50,12 +152,12 @@ class PartModule(BaseDynamicCommand):
         
 class QuitModule(BaseDynamicCommand):
     '''
-        Module for managin quits
-    '''
-    
+        Module for managing quits
+    '''    
     def build_meta(self, metadata):
         metadata.key = "quit"
         metadata.aliases = ["quit"]
+        metadata.desc = "Quit IRC"
         metadata.interface = CompleteInterface
         
     def build_parser(self):
@@ -85,6 +187,7 @@ class KickModule(BaseDynamicCommand):
     def build_meta(self, metadata):
         metadata.key = "kick"
         metadata.aliases = ["kick"]
+        metadata.desc = "Perform kicks"
         
     def build_parser(self):
         parser = SimpleArgumentParser(prog="kick")
@@ -105,6 +208,7 @@ class BanModule(BaseDynamicCommand):
     def build_meta(self, metadata):
         metadata.key = "ban"
         metadata.aliases = ["ban"]
+        metadata.desc = "Manage bans"
     
     def build_parser(self):
         parser = SimpleArgumentParser(prog="ban")
@@ -129,6 +233,7 @@ class OpModule(BaseDynamicCommand):
     def build_meta(self, metadata):
         metadata.key = "op"
         metadata.aliases = ["op"]
+        metadata.desc = "Perform OP/DEOP on users"
         
     def build_parser(self):
         parser = SimpleArgumentParser(prog="op")
@@ -158,6 +263,7 @@ class SayModule(BaseDynamicCommand):
     def build_meta(self, metadata):
         metadata.key = "say"
         metadata.aliases = ["say"]
+        metadata.desc = "Say something to nick/channel"
         
     def build_parser(self):
         parser = SimpleArgumentParser(prog="say")
@@ -195,6 +301,7 @@ class ArmageddonModule(BaseDynamicCommand):
     def build_meta(self, metadata):
         metadata.key = "armageddon"
         metadata.aliases = ["armageddon"]
+        metadata.desc = "Bring forth armageddon"
         metadata.listeners = ["mode", "userlist"]
         
     def build_parser(self):
@@ -319,15 +426,14 @@ class ArmageddonModule(BaseDynamicCommand):
                     
         elif options.list:
             self._bot.send_multiline(self._bot.notice, nick, 'Whitelisted hostnames are:\n' + '\n'.join([ '%2d) %s' % (i[0], i[1]) for i in zip(range(1,len(self._whitelist)+1), self._whitelist)]))
-        else:
-            if self._bot.has_status('arma'):
-                if options.recover:
-                    self.arma_recover()
-                elif options.users:
-                    self.arma(options.users)
-                else:                    
-                    self.armageddon(0)
-                    self._bot.notice(nick, 'Commencing Armageddon!')
+        else:            
+            if options.recover:
+                self.arma_recover()
+            elif options.users:
+                self.arma(options.users)
+            else:                    
+                self.armageddon(0)
+                self._bot.notice(nick, 'Commencing Armageddon!')
     
     def whitelist(self):
         return self._whitelist
@@ -347,16 +453,17 @@ class ArmageddonModule(BaseDynamicCommand):
         
 class FlagModule(BaseDynamicCommand):
     '''
-        Module for handling flag
+        Module for handling flags
     '''
     
     def build_meta(self, metadata):
-        metadata.key = "flag"
-        metadata.aliases = ["flag"]
+        metadata.key = "flags"
+        metadata.aliases = ["flags"]
+        metadata.desc = "Manage flags on bot"
         
     def build_parser(self):
-        parser = SimpleArgumentParser(prog="flag", prefix_chars="+-", add_help=None, usage="flag [--help] +/-[hukbv]")
-        parser.add_help_argument("--help", action="store_true", dest="help", default=False, help="Show this help")
+        parser = SimpleArgumentParser(prog="flags", prefix_chars="+-", add_help=None, usage="flag [--desc] +/-[hukbv]")
+        parser.add_help_argument("--desc", action="store_true", dest="desc", default=False, help="Show this desc")
         parser.add_flag("+h", "-h", dest="hear", help="Hear commands")
         parser.add_flag("+v", "-v", dest="voice", help="Voice results")        
         parser.add_flag("+k", "-k", dest="kick", help="Allow kicking")
@@ -417,6 +524,7 @@ class EnforceModule(BaseDynamicCommand):
     def build_meta(self, metadata):
         metadata.key = "enforce"
         metadata.aliases = ["enforce"]
+        metadata.desc = "Enforce kick/ban/kickban rules"
         metadata.listeners = ["join", "nick"]
         
     def event(self, key, channel, user, args):
@@ -429,7 +537,7 @@ class EnforceModule(BaseDynamicCommand):
             
     def build_parser(self):
         parser = SimpleArgumentParser(prog="enforce")        
-        parser.add_argument("-a", "--add", dest="add", choices=["kick", "ban", "arma"], help="Enforce a rule [Default: kick]", metavar="GROUP")
+        parser.add_argument("-a", "--add", dest="add", choices=["kick", "ban", "arma"], default="kick", help="Enforce a rule [Default: kick]", metavar="GROUP")
         parser.add_argument("-l", "--list", dest="list", action="store_true", help="List rules")
         parser.add_argument("-r", "--remove", dest="remove", choices=["kick", "ban", "arma"], help="Remove rule", metavar="GROUP")
         parser.add_argument("-x", "--regex", dest="regex", action="store_true", help="Rule is a regex")
@@ -454,7 +562,7 @@ class EnforceModule(BaseDynamicCommand):
                 else:
                     self._bot.notice(nick, 'No rules exist')
             else:
-                self._bot.send_multiline(self._bot.notice, nick, self.help())
+                self._bot.send_multiline(self._bot.notice, nick, self.desc())
         else:
             options.rule = ' '.join(options.rule)
             if options.remove:               
@@ -474,7 +582,7 @@ class EnforceModule(BaseDynamicCommand):
                 else:  
                     self._bot.notice(nick, 'Rule has been enforced to group "%s"' % options.add)
             
-    def enforce(self, nick, ident, host):        
+    def enforce(self, nick, ident, host):
         action = self._enforcer.enforce('%s!%s@%s' % (nick, ident, host))
         #m = self._regex_name.match(':'+user)
         if action == "kick":  
@@ -508,6 +616,7 @@ class UserAuthModule(BaseDynamicCommand):
     def build_meta(self, metadata):
         metadata.key = "users"
         metadata.aliases = ["users"]
+        metadata.desc = "Manage users of bot"
         
     def build_parser(self):
         parser = SimpleArgumentParser(prog="users")
@@ -582,6 +691,7 @@ class ModManagerModule(BaseDynamicCommand):
     def build_meta(self, metadata):
         metadata.key = "module"
         metadata.aliases = ["module"]
+        metadata.desc = "Manage modules"
         
     def build_parser(self):
         parser = SimpleArgumentParser(prog="module")
@@ -622,16 +732,25 @@ class ModManagerModule(BaseDynamicCommand):
         elif options.enable:
             for key in options.keys:
                 if key != self.key:
-                    if self._bot.module(key, mgr_type).enable():
+                    module = self._bot.module(key, mgr_type)
+                    if module is None:
+                        self._bot.notice(nick, "No such module named '%s'" % key)
+                    elif module.enable():
                         self._bot.notice(nick, "The module '%s' has been enabled" % key)
                     else:
                         self._bot.notice(nick, "Module '%s' state unchanged" % key)
         elif options.disable:
             for key in options.keys:
-                if key != self.key:            
-                    self._bot.module(key, mgr_type).disable()
-                    self._bot.notice(nick, "The module '%s' has been disabled" % key)        
+                if key != self.key:
+                    module = self._bot.module(key, mgr_type)
+                    if module is None:
+                        self._bot.notice(nick, "No such module named '%s'" % key)  
+                    elif module.disable():
+                        self._bot.notice(nick, "The module '%s' has been disabled" % key)
+                    else:
+                        self._bot.notice(nick, "Module '%s' state unchanged" % key)
         elif options.reload:
+            self._bot.save_state()
             if options.internal:
                 if len(options.keys):
                     c = 0
@@ -683,8 +802,7 @@ class SimpleLogModule(BaseDynamicCommand):
             os.makedirs(self._dir)        
             
     def build_meta(self, metadata):
-        metadata.key = "log"
-        metadata.aliases = ["log"]
+        metadata.key = "log"        
         metadata.listeners = ["join", "nick", "mode", "msg", "privmsg", "notice", "broadcast", "kick", "part", "quit", "botquit", "exit"]#, "ping", "pong", "motd_end"]
         
     def event(self, key, channel, user, args):
@@ -717,31 +835,7 @@ class SimpleLogModule(BaseDynamicCommand):
         elif key == "ping":
             self.log("PING: %s" % args)
         elif key == "pong":
-            self.log("PONG: %s [%s]" % (args[0], args[1]))
-            
-    #def get_user(self, nick, ident, host):
-    #    return '%s!%s@%s' % (nick, ident, host)
-    
-    def enabled(self, value=None):
-        if value is None:
-            return self._logging
-        else:
-            self._logging = value
-            
-    
-    #def parse_name(self, user):
-    #    return self._regex_name.match(user).groups()
-    
-    def build_parser(self):
-        return SimpleArgumentParser()
-    
-    def output(self, nick, host, auth, powers, options):
-        if options.enable:
-            self._bot.module(options.enable).enable()
-            self._bot.notice(nick, 'The module has been enabled')
-        elif options.disable:            
-            self._bot.module(options.disable).disable()
-            self._bot.notice(nick, 'The module has been disabled')
+            self.log("PONG: %s [%s]" % (args[0], args[1]))    
             
     def close(self):
         if self._file:
