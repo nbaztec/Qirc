@@ -2,7 +2,7 @@
 Created on Jun 7, 2012
 Updated on Nov 28, 2012
 @author: Nisheeth
-@version: 4.0.6 Ethereal
+@version: 4.0.7 Ethereal
 '''
 
 from Modules.Manager import DynamicExtensionManager, DynamicCommandManager
@@ -266,6 +266,7 @@ class BaseBot(object):
         '''
             @summary: Synchronous reading via selecting 
         '''        
+        Log.write('Starting read loop') 
         try:            
             self._read_buffer = ''
             run_read = True
@@ -304,9 +305,10 @@ class BaseBot(object):
                 time.sleep(self._retry_timeout)
             except:                 
                 pass
-        self.register()        
+            
+        self.on_connected()
         self.begin_read()
-        self.on_connected()        
+        self.register()                
     
     def on_bot_terminate(self):
         '''
