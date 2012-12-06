@@ -12,7 +12,7 @@ from Util import htmlx
 from Util.Log import Log
 
 appid = {
-            'google'    : 'AIzaSyAMajmwMaD4uPv1EuXn_WzC-9T61GZW5gw',
+            'google'    : '',
         }
 
 
