@@ -7,11 +7,13 @@ Created on Jun 8, 2012
 import urllib
 import urllib2
 from Util.BeautifulSoup import BeautifulSoup
+from Util.Config import ConfigManager
 from Util.Log import Log
 
-appid = {
-            'ipinfo'    : ''
-        }
+config = ConfigManager.read_config('extensions.conf', 'ipinfo')
+#config = {
+#            'ipinfo'    : '7cc52ff3504c129fd61b2de112874fe54c020a57e981fbb20fc41d200e8c4c7d'
+#        }
    
 def iplocate(ip): 
     '''
@@ -19,7 +21,7 @@ def iplocate(ip):
         @summary: Performs a IP lookup and obtains the location of the user
     '''     
     try:
-        response = urllib2.urlopen('http://api.ipinfodb.com/v3/ip-city/?key=%s&format=xml&ip=%s' % (appid['ipinfo'], urllib.quote(ip)))        
+        response = urllib2.urlopen('http://api.ipinfodb.com/v3/ip-city/?key=%s&format=xml&ip=%s' % (config['app-id'], urllib.quote(ip)))        
         page = response.read()                            
         response.close()
         soup = BeautifulSoup(page)

@@ -141,7 +141,7 @@ class BaseModule(object):
         pass
     
     @abstractmethod
-    def output(self, nick, host, auth, powers, options):
+    def output(self, channel, user, options):
         pass
     
     def get_state(self):
@@ -213,7 +213,8 @@ class BaseDynamicExtension(BaseToggleModule):
     def build_meta(self, metadata):
         '''
             @summary: Returns a tuple representing the (command-name, command-alias-list)
-        '''        
+        '''
+        pass
     
     @property
     def key(self):
@@ -264,12 +265,14 @@ class BaseDynamicExtension(BaseToggleModule):
                    nick        new_nick
                    mode        (mode, flags, users)
                    msg         msg
+                   msg-action  action_text
                    privmsg     msg
                    broadcast   msg
                    notice      msg
                    kick        (source, reason)
+                   topic       new_topic
                    ping        server
-                   pong        (server, msg)
+                   pong        (server, msg)                   
                    
         '''
         pass
@@ -277,7 +280,7 @@ class BaseDynamicExtension(BaseToggleModule):
     def build_parser(self):
         return None    
     
-    def output(self, nick, host, auth, powers, options):
+    def output(self, channel, user, options):
         pass
     
 class BaseDynamicCommand(BaseDynamicExtension):

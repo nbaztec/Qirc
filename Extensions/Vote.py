@@ -10,33 +10,38 @@ class VoteMaster(object):
     '''
         @summary: A generic class to manage voting sessions
     '''
-    def __init__(self):               
-        self.is_voting = False
+    
+    def __init__(self):                       
         self._result = None
         self._output = None
+        self._vote = {}
         
-    def start(self, time, ques, output, result):
+    def start(self, channel, time, ques, output, result):
         '''
             @param ques: The voting question
             @summary: Starts a voting session
         '''
-        if self.is_voting:      # Don't start if existing session is underway
+        if channel in self._vote.keys():      # Don't start if existing session is underway
             return None
         
         self._result = result
         self._output = output
-        self._time = max(5, time)
-        self.ques = ques        
-        self.users = []
-        self.votep = 0
-        self.voten = 0
-        Thread(target=self.voting_period, name='voting_period').start()         # Start timer
+        
+        self._vote[channel] = {
+                                'time'  : max(5, time),                               
+                                'ques'  : ques,
+                                'users' : [],
+                                'vote+' : 0,
+                                'vote-' :0
+                              }
+        
+        Thread(target=self.voting_period, args=(channel,), name='voting_period').start()         # Start timer
         if self._output:
-            Thread(target=self._output, args=("Voting started (%ds) for: '%s', Vote + or -" % (time, ques),), name='VoteMaster._output').start()
+            Thread(target=self._output, args=(channel, "Voting started (%ds) for: '%s', Vote + or -" % (time, ques),), name='VoteMaster._output').start()
         return True
             
         
-    def register_vote(self, nick, host, vote):
+    def register_vote(self, channel, nick, host, vote):
         '''
             @param nick: The nick of user who voted
             @param host: The host of user who voted
@@ -44,29 +49,32 @@ class VoteMaster(object):
             @summary: Registers a unique vote per user
             @notice: Host is used to identify same people            
         '''
-        if host not in self.users:              # Register 1 vote per user
+        if host not in self._vote[channel]['users']:              # Register 1 vote per user
             if vote == '+':
-                self.votep += 1
-                self.users.append(host)
+                self._vote[channel]['vote+'] += 1
+                self._vote[channel]['users'].append(host)
             elif vote == '-':
-                self.voten += 1
-                self.users.append(host)
+                self._vote[channel]['vote-'] += 1
+                self._vote[channel]['users'].append(host)
             elif self._output:
-                Thread(target=self._output, args=('Only +/- are valid %s. Revote' % nick,), name='VoteMaster._output').start()      
+                Thread(target=self._output, args=(channel, 'Only +/- are valid %s. Revote' % nick,), name='VoteMaster._output').start()      
     
-    def voting_period(self):
+    def voting_period(self, channel):
         '''            
             @summary: Calls the timeout of voting period
-        '''        
-        self.is_voting = True
-        time.sleep(self._time)                          # 10 second time for vote
-        self.is_voting = False
-        self.result()
+        '''
+        d = self._vote[channel]
+        time.sleep(d['time'])                          # 10 second time for vote
+        self._vote.pop(channel)
+        self.result(channel, d['ques'], d['vote+'], d['vote-'])
         
-    def result(self):
+    def result(self, channel, ques, votep, voten):
         '''            
             @summary: Returns the outcome of the voting session
         '''
         if self._result:                
-            Thread(target=self._result, args=(self.votep, self.voten, self.ques, ), name='VoteMaster._result').start()    
+            Thread(target=self._result, args=(channel, votep, voten, ques, ), name='VoteMaster._result').start()
+            
+    def is_voting(self, channel):
+        return channel in self._vote.keys()
         

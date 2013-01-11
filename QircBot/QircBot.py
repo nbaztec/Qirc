@@ -1,14 +1,13 @@
 '''
 Created on Jun 7, 2012
-Updated on Nov 28, 2012
-@author: Nisheeth
-@version: 4.0.7 Ethereal
+@author: Nisheeth Barthwal
 '''
 
 from Modules.Manager import DynamicExtensionManager, DynamicCommandManager
 from Modules import External, Internal, Commands
         
 from QircDatabase import SqliteDb
+from QircConfig import QircConfig
 from Util.Log import Log
 from Util.ThreadQueue import ThreadQueue
 from Util.Common import chunk
@@ -44,13 +43,15 @@ class User(object):
             }
         d.update(kwargs)
         
-        if len(args) == 6:            
+        if len(args) >= 6:            
             self._nick = args[0]
             self._ident = args[1]
             self._host = args[2]
             self._role = args[3]
             self._auth = args[4]
             self._powers = args[5]
+            if len(args) == 7:
+                self._mgr = args[6]            
         elif len(args) == 1:
             self._nick = None
             self._ident = None
@@ -58,6 +59,7 @@ class User(object):
             self._role = None
             self._auth = None
             self._powers = None
+            self._mgr = None
             
             self._input = username = args[0]            
             masters = d['masters']
@@ -95,6 +97,11 @@ class User(object):
                         self._role  = role 
                         self._auth  = masters[role]['auth']
                         self._powers  = masters[role]['powers']
+                        if role == 'chan_mgr':
+                            for c,v in masters[role]['channels'].items():
+                                if self._host in v:
+                                    self._mgr = c
+                                    break
         else:
             raise Exception("Incorrect number of arguments")
     
@@ -126,6 +133,10 @@ class User(object):
     @property
     def powers(self):
         return self._powers
+    
+    @property
+    def mgr_channel(self):
+        return self._mgr
 
 
 class BaseBot(object):
@@ -136,44 +147,93 @@ class BaseBot(object):
     
     __metaclass__ = ABCMeta
         
-    def __init__(self, callback, params=None):
+    def __init__(self, config=None, callback=None):
         '''
-            @param callback  : A callback function to be called when bot is successfully registered
-            @param params    : Parameters for the bot,
-                             Default:
-                                  'host'        : 'irc.freenode.net'
-                                  'port'        : 6667
-                                  'nick'        : 'QircBot'
-                                  'ident'       : 'QircBot'
-                                  'realname'    : 'QirckyBot'  
-                                  'password'    : None                             
+            @param config    : Configuration for the bot
+            @param callback  : A callback function to be called when bot is successfully registered            
         '''
+        if config:
+            self._config = config
+        else:
+            self._config = None
+            self.load_config()
+            
+        self._channels = {}
         
-        self.params = {
-              'host'        : 'irc.freenode.net',
-              'port'        : 6667,
-              'nick'        : 'QircBot',
-              'ident'       : 'QircBot',
-              'realname'    : 'QirckyBot',
-              'password'    : None,
-              'chan'        : []           
-              }
-        if params is not None:            
-            self.params.update(params)            
-        Log.write(self.params)
+        Log.write(self._config)
         
-        self._regexes = { }
+        self._regexes = {}
         
+        self._topic = {}                                    # Temporarily hold topics until STATUS 332 is received
         self._sock = socket.socket();
         self._success_callback = callback     
-        self._lock = Lock()                     # mutex _lock [unused]                
-        self.orig_nick = self.params['nick']    # Store original nick for temp logins        
+        self._lock = Lock()                                 # mutex _lock [unused]                
         
         self._cv_ping_exit = Condition()
         
-        BaseBot.reset_flags(self)               # Reset bot state
+        BaseBot.reset_flags(self, build=True)               # Reset bot state
+                    
+    def load_config(self):
+        '''
+            @summary: Loads config of the bot
+        ''' 
+        d = QircConfig()
+        if self._config:                                        # If this is a reload
+            d['bot']['nick'] = self._config['bot']['nick']      # Preserve bot's nick
+        self._config = d
         
-    def reset_flags(self, build=True):
+    def config(self, *args):
+        '''
+            @param args: Hierarchy of access leading to the option
+            @summary: Returns a config value
+        ''' 
+        v = None
+        d = self._config
+        for k in args:
+            if d.has_key(k): 
+                v = d[k]
+                d = v
+            else:
+                return None
+        return v
+    
+    @property
+    def channels(self):
+        return self._channels.keys()
+    
+    def channel_flags(self, channel):
+        if self._channels.has_key(channel):
+            return self._channels[channel]['flags']
+        return None
+    
+    def channel_flag(self, channel, flag):
+        if self._channels.has_key(channel):
+            return flag in self._channels[channel]['flags']
+        else:
+            return False
+        
+    def channel_members(self, channel):
+        if self._channels.has_key(channel):
+            return self._channels[channel]['members']
+        return None
+    
+    def channel_member(self, channel, nick):
+        if self._channels.has_key(channel) and self._channels[channel]['members'].has_key(nick):
+            return self._channels[channel]['members'][nick]
+        return None
+    
+    def get_user_channel(self, nick, index=0):
+        idx = max(index, 0)
+        for k,v in self._channels.items():
+            for u in v['members'].keys():                
+                if nick == u:
+                    if idx == 0:
+                        return k
+                    else:
+                        idx = idx - 1
+        return None
+        
+    def reset_flags(self, build):
         '''
             @param build: If true, then status_flags are initialized 
             @summary: Resets the state flags of the bot 
@@ -188,12 +248,13 @@ class BaseBot(object):
                               'ban'     : True,
                               'url'     : False
                           }
-     
-        self._flags = {                         # Flags set on the bot
-                            'o' : False,
-                            'i' : False,
-                            'v' : False
-                       }
+        
+    def bot_connected(self):
+        '''
+            @summary: Called when the bot has connected to the server
+        '''
+        if self._success_callback:
+            Thread(target=self._success_callback, args=(self,), name='callback').start()        # Call callback function
         
     def close(self):
         '''
@@ -224,13 +285,13 @@ class BaseBot(object):
             @summary: Tries to connect to the IRC Server. Retries after exponential time.
         '''                                
         try:            
-            self._sock.connect((self.params['host'], self.params['port']))
+            self._sock.connect((self.config('server', 'url'), self.config('server', 'port')))
             self._sock.setblocking(0)            
             self._retry_timeout = 15
             return True
         except socket.error, e:
             Log.write('Failed to connect %s Reconnecting in %d seconds' % (e, self._retry_timeout))
-            time.sleep(self._retry_timeout)
+            #time.sleep(self._retry_timeout)
             if self._retry_timeout < 180:
                 self._retry_timeout *= 1.5                      # Increase retry time after every failure
             else:
@@ -240,8 +301,8 @@ class BaseBot(object):
         '''
             @summary: Registers the bot on IRC
         '''
-        self.send("NICK %s" % self.params['nick'])
-        self.send("USER %s %s bla :%s" % (self.params['ident'], self.params['host'], self.params['realname']))
+        self.send("NICK %s" % self.config('bot', 'nick'))
+        self.send("USER %s %s bla :%s" % (self.config('bot', 'ident'), self.config('server', 'url'), self.config('bot', 'realname')))
     
     def send(self, msg):
         '''
@@ -285,7 +346,7 @@ class BaseBot(object):
                     
         except Exception:
             Log.error('QircBot.read: ') 
-                
+        Log.write('Read loop terminated') 
         self.cleanup()                              # Perform clean up
         self.on_bot_terminate()                
                   
@@ -319,7 +380,7 @@ class BaseBot(object):
     def on_connected(self):
         '''
             @summary: Called when the bot is connected
-        '''
+        '''        
         pass
     
     @abstractmethod
@@ -337,69 +398,63 @@ class ActiveBot(BaseBot):
         @version: 4.0
     '''
     
-    def __init__(self, callback, params=None):
+    def __init__(self, config=None, callback=None):
         '''
+            @param config    : Configuration for the bot
             @param callback  : A callback function to be called when bot is successfully registered
-            @param params    : Parameters for the bot,
-                             Default:
-                                  'host'        : 'irc.freenode.net'
-                                  'port'        : 6667
-                                  'nick'        : 'QircBot'
-                                  'ident'       : 'QircBot'
-                                  'realname'    : 'QirckyBot'  
-                                  'password'    : None                             
         '''
-        super(ActiveBot, self).__init__(callback, params)
-        ActiveBot.reset_flags(self, False)                 # Initialize flags but do not bubble up, since already set by BaseBot.__init__()
+        super(ActiveBot, self).__init__(config, callback)
+        ActiveBot.reset_flags(self, bubble=False, build=True)                 # Initialize flags but do not bubble up, since already set by BaseBot.__init__()
          
-        self._op_actions = ThreadQueue()                   # ThreadQueue for OP functions
+        self._op_actions = {}                              # Named ThreadQueues for OP functions per channel        
         self._multisend_lock = Lock()                      # Thread lock for avoiding floodkicks on send_multiline()
         self._cv_userlist = Condition()                    # Condition Variable for requesting userlist
         self._cv_autojoin = Condition()                    # Condition Variable for requesting userlist
     
+    def bot_connected(self):
+        '''
+            @summary: Called when the bot has connected to the server
+        '''
+        super(ActiveBot, self).bot_connected()
+        for c in self.config('startup', 'channels'):            
+            self.join(c)
+        msg = self.config('startup', 'notice-msg')
+        for n in self.config('startup', 'notice-to'):            
+            self.notice(n, msg)
+            
     def notify_all_threads(self):
         '''
             @summary: Notifies all waiting threads
         '''
+        Log.write('Notifying pinger CV')
         self._cv_ping_exit.acquire()
         self._cv_ping_exit.notify_all()
         self._cv_ping_exit.release()        
+        Log.write('Notifying userlist CV')
         self._cv_userlist.acquire()
         self._cv_userlist.notify_all()
         self._cv_userlist.release()
+        Log.write('Notifying autojoin CV')
         self._cv_autojoin.acquire()
         self._cv_autojoin.notify_all()
-        self._cv_autojoin.release()        
+        self._cv_autojoin.release()
         
-    def current_userlist(self):
-        '''
-            @summary: Returns the userlist for the current channel
-        '''
-        return self._names
-    
-    @property
-    def current_channel(self):
-        '''
-            @summary: Returns the current channel or an empty string 
-        '''
-        if len(self.params['chan']):
-            return self.params['chan'][0]
-        else:
-            return ''
-        
-    def reset_flags(self, bubble=True):
+    def reset_flags(self, bubble, build):
         '''
             @param bubble: Whether to reset the flags in the base class
+            @param build: If true, then status_flags are initialized
             @summary: Resets the state flags of the bot 
         '''
         self._alive = True
         self._joined = False
         self._pong_recv = True
         self._ghost = False
-        self._names = {}
+        self._has_quit = False
+        self._restart_req = False
+        #self._members = {}
         self._retry_channels = {}
         if bubble:
-            BaseBot.reset_flags(self)
+            BaseBot.reset_flags(self, build)
         
     def cleanup(self):
         '''
@@ -407,12 +462,15 @@ class ActiveBot(BaseBot):
         '''        
         BaseBot.cleanup(self)    
     
-    def request_userlist(self):
+    def request_memberlist(self, channel=None):
         '''
             @summary: Activates a request for raising `userlist` event
         '''
         self._cv_userlist.acquire()
-        self._request_userlist = True
+        if channel:
+            self._request_memberlist = [channel]
+        else:
+            self._request_memberlist = self.channels
         self._cv_userlist.notify()
         self._cv_userlist.release()
     
@@ -436,9 +494,9 @@ class ActiveBot(BaseBot):
                 Log.error(e)
         Log.write('Terminated: autojoin_retry()')
                 
-    def userlist_buildup(self):
+    def memberlist_buildup(self):
         '''
-            @summary: Builds a {nick : username} dict for all the members in current channel at periodic intervals
+            @summary: Builds a {nick : username} dict for all the members in every channel at periodic intervals
         '''                        
         try:
 
@@ -452,39 +510,46 @@ class ActiveBot(BaseBot):
         except:
             pass
         
-        self._request_userlist = False
-        userlist_pending = userlist_req = False        
+        self._request_memberlist = []
+        old_channels_requested = []
         while self._alive and not self.close_requested() and not self.restart_requested():                    
             try:                                                
-                userlist_req = False
-                l = []                                                      # Check if any nick doesn't have the username entry
-                for k,v in self._names.items():
-                    if v is None:
-                        l.append(k)
-                if len(l):                                                  # Request hostnames of empty nicks
-                    userlist_req = userlist_pending = True
-                    for n in chunk(l, 5):
-                        self.userhosts(' '.join(n))
-                    Log.write('Requesting Userlist: %s' % self._names.keys(), 'D')
-                #else:                    
-                #    Log.write('Complete Userlist: %s' % self._names.keys(), 'D')
+                channels_requested = []
+                for c,d  in self._channels.items():                                  # For every connected channel
+                    l = []                                                      # Check if any nick doesn't have the username entry
+                    for k,v in d['members'].items():
+                        if v is None:
+                            l.append(k)
+                    if len(l):                                                  # Request hostnames of empty nicks
+                        channels_requested.append(c)
+                        for n in chunk(l, 5):
+                            self.userhosts(' '.join(n))
+                        Log.write('Requesting Userlist: %s' % l, 'D')
+                    #else:                    
+                    #    Log.write('Complete Userlist: %s' % self._members.keys(), 'D')
                 
                 self._cv_userlist.acquire()
-                if userlist_req:                    
-                    if self._request_userlist:
+                if len(channels_requested):
+                    olen = len(old_channels_requested)
+                    if olen and olen != len(channels_requested):
+                        for c in set(old_channels_requested) - set(channels_requested):
+                            self.on_userlist_complete(c)
+                    if len(self._request_memberlist):
                         self._cv_userlist.wait(5)                           # Recheck after 5 seconds if list is requested
                     else:
                         self._cv_userlist.wait(10)                          # Recheck after 30 seconds otherwise
-                elif userlist_pending or self._request_userlist:
-                    self._request_userlist = userlist_pending = False                    
-                    self.on_userlist_complete()                    
+                elif len(self._request_memberlist):                                # If list was requested and not pending, then trigger event
+                    for c in self._request_memberlist:
+                        self.on_userlist_complete(c)
+                    self._request_memberlist = []                                        
                     self._cv_userlist.wait(60)                              # Sleep for 60 seconds
                 else:                    
                     self._cv_userlist.wait(60)                              # Sleep for 60 seconds
                 self._cv_userlist.release()                    
             except Exception, e:
-                Log.error(e)            
-        Log.write('Terminated: userlist_buildup()')
+                Log.error(e)  
+            old_channels_requested = channels_requested
+        Log.write('Terminated: memberlist_buildup()')
                                         
             
     def server_ping(self):        
@@ -519,8 +584,9 @@ class ActiveBot(BaseBot):
         '''
         Log.write('Server failed to respond to PONG')
             
-    def queue_op_add(self, target, args=(), kwargs={}):
+    def queue_op_add(self, channel, target, args=(), kwargs={}):
         '''
+            @param channel: Channel name to identify a queue
             @param target: The function
             @param args: Arguments to function
             @param kwargs: Keyworded arguments to function
@@ -528,34 +594,35 @@ class ActiveBot(BaseBot):
             @summary: Adds a item to the queue for processing once the bot is OPed
         '''
         self._lock.acquire()
-        self._op_actions.put(target, args, kwargs)
+        if not self._op_actions.has_key(channel):
+            self._op_actions[channel] = ThreadQueue()
+        self._op_actions[channel].put(target, args, kwargs)
         self._lock.release()
     
-    def queue_op_process(self):
+    def queue_op_process(self, channel):
         '''
+            @param channel: Channel name to identify a queue
             @summary: Processes the tasks once the bot is OPed
         '''
         self._lock.acquire()
-        if self._op_actions.Length:        
-            self._op_actions.process()                              # Process
-            self._op_actions.join()                                 # Block until complete
-            self.deop(self.current_channel, self.params['nick'])
-            self._flags['o'] = False                                # Precautionary measure
+        if self._op_actions.has_key(channel) and self._op_actions[channel].length:
+            self._op_actions[channel].process()                              # Process
+            self._op_actions[channel].join()                                 # Block until complete
+            self.deop(channel, self.config('bot', 'nick'))
+            self.set_flags(channel, 'o', value=False)                        # Precautionary measure
         self._lock.release()
             
-    def get_flag(self, key=None):
+    def get_flag(self, channel, key=None):
         '''
             @param key: Key of the flag, None if all flags are required
             @return: Returns flag status else all flags            
         '''
         if key is None:
-            return self._flags.items()
-        elif self._flags.has_key(key):            
-            return self._flags[key]
+            return self.channel_flags(channel).items()
         else:
-            return False
+            return self.channel_flag(channel, key)        
     
-    def set_flags(self, key=None, value=None, flag_dict=False):
+    def set_flags(self, channel, key=None, value=None, flag_dict=False):
         '''
             @param key: Key to flags
             @param value: The new value to set, if required 
@@ -564,20 +631,23 @@ class ActiveBot(BaseBot):
         '''
         if flag_dict:
             if value is None:
-                return self._flags
+                return self.channel_flags(channel)
             else:        
-                self._flags = value
+                self._channels[channel]['flags'] = value
         else:
             if key is None:
-                return self._flags.items()
+                return self.channel_flags(channel).items()
             else:
                 if value is not None:
-                    self._flags[key] = value
-                    return value
-                elif self._flags.has_key(key):            
-                    return self._flags[key]
+                    if value:
+                        if key not in self._channels[channel]['flags']:
+                            self._channels[channel]['flags'].append(key)
+                    else:
+                        if key in self._channels[channel]['flags']:
+                            self._channels[channel]['flags'].remove(key)
+                    return value                
                 else:
-                    return False
+                    return self.channel_flag(channel, key)
         
     def get_status(self, key=None):
         '''
@@ -622,37 +692,37 @@ class ActiveBot(BaseBot):
         '''
             @summary: Sends a PING message to the server 
         '''
-        self.send("PING %s" % self.params['host'])
+        self.send("PING %s" % self.config('server', 'url'))
         
-    def join(self, chan, key=''):
+    def join(self, channel, key=''):
         '''
-            @param chan: The channel to join. Example #chan
+            @param channel: The channel to join. Example #channel
             @summary: Sends a JOIN command to join the channel and updates the current channel
         '''                
-        self.send('JOIN %s %s' % (chan, key))
+        self.send('JOIN %s %s' % (channel, key))
         
-    def part(self, chan, msg=''):
+    def part(self, channel, msg=''):
         '''
             @param msg: PART message
             @summary: Parts the bot from a channel
         '''
-        self.send("PART %s :%s" % (chan, msg))        
+        self.send("PART %s :%s" % (channel, msg))        
         
     def identify(self):
         '''
             @summary: Sends a message to identify bot's NICK 
         '''
-        if self.params['password']:
-            self.send("PRIVMSG nickserv :identify %s" % self.params['password'])
+        if self.config('bot', 'password'):
+            self.send("PRIVMSG nickserv :identify %s" % self.config('bot', 'password'))
         
     def ghost(self, nick):
         '''
             @param nick: NICK to ghost
             @summary: Sends a message to NickServ to ghost a NICK
         '''
-        if self.params['password']:
+        if self.config('bot', 'password'):
             Log.write("Ghosting nick...")
-            self.send("PRIVMSG nickserv :ghost %s %s" % (nick, self.params['password']))        
+            self.send("PRIVMSG nickserv :ghost %s %s" % (nick, self.config('bot', 'password')))        
     
     def nick(self, nick):
         '''
@@ -668,12 +738,12 @@ class ActiveBot(BaseBot):
         '''
         self.send('QUIT :%s' % msg)         
     
-    def say(self, msg):     
+    def say(self, channel, msg):     
         '''
             @param msg: Message to say
             @summary: Say something in the current channel
         '''   
-        self.send('PRIVMSG %s :%s' % (self.current_channel, msg))
+        self.send('PRIVMSG %s :%s' % (channel, msg))
         
     def msg(self, nick, msg):
         '''
@@ -711,99 +781,103 @@ class ActiveBot(BaseBot):
             
             self._multisend_lock.release()
             
-    def kick(self, nick, msg, auto_op=True):        
+    def kick(self, channel, nick, msg, auto_op=True):        
         '''
+            @param channel: Channel name
             @param nick: User nick
             @param msg: KICK reason
             @param auto_op: If set to true ensures that the bot is +o'd first
             @summary: Kicks a user from the channel
             @attention: Requires OP mode
         '''
-        if self.get_status('kick') and nick != self.params['nick']:     # Avoid kicking self
-            if self._flags['o']:
-                self.send('KICK %s %s %s' % (self.current_channel, nick, ' :'+msg if msg else ''))
+        if self.get_status('kick') and nick != self.config('bot', 'nick'):     # Avoid kicking self
+            if self.channel_flag(channel, 'o'):
+                self.send('KICK %s %s %s' % (channel, nick, ' :'+msg if msg else ''))
             elif auto_op:
-                self.queue_op_add(target=self.kick, args=(nick, msg, False,))
-                self.op(self.current_channel, self.params['nick'])
+                self.queue_op_add(channel, target=self.kick, args=(channel, nick, msg, False,))
+                self.op(channel, self.config('bot', 'nick'))
     
-    def ban(self, host, auto_op=True):
+    def ban(self, channel, host, auto_op=True):
         '''
+            @param channel: Channel name
             @param host: User's hostmask
             @param auto_op: If set to true ensures that the bot is +o'd first
             @summary: Bans a user from the channel
             @attention: Requires OP mode
         '''
-        if self.get_status('ban') and host.lstrip("*!*@") != self._names[self.params['nick']].host:
-            if self._flags['o']:
-                self.send('MODE %s +b %s' % (self.current_channel, host,))
+        if self.get_status('ban') and host.lstrip("*!*@") != self.channel_member(channel, self.config('bot', 'nick')).host:
+            if self.channel_flag(channel, 'o'):
+                self.send('MODE %s +b %s' % (channel, host,))
             elif auto_op:
-                self.queue_op_add(target=self.ban, args=(host, False,))    
-                self.op(self.current_channel, self.params['nick'])        
+                self.queue_op_add(channel, target=self.ban, args=(channel, host, False,))    
+                self.op(channel, self.config('bot', 'nick'))        
     
-    def kickban(self, nick, host, msg, auto_op=True):        
+    def kickban(self, channel, nick, host, msg, auto_op=True):        
         '''
+            @param channel: Channel name
             @param nick: User nick
             @param msg: KICK reason
             @param auto_op: If set to true ensures that the bot is +o'd first
             @summary: Kicks a user from the channel
             @attention: Requires OP mode
         '''        
-        if self.get_status('kick') and self.get_status('ban') and nick != self.params['nick']:     # Avoid kicking self
-            if self._flags['o']:
-                self.kick(nick, msg)
-                self.ban(host)
+        if self.get_status('kick') and self.get_status('ban') and nick != self.config('bot', 'nick'):     # Avoid kicking self
+            if self.channel_flag(channel, 'o'):
+                self.ban(channel, host)
+                self.kick(channel, nick, msg)                
             elif auto_op:
-                self.queue_op_add(target=self.kickban, args=(nick, host, msg, False,))
-                self.op(self.current_channel, self.params['nick'])
+                self.queue_op_add(channel, target=self.kickban, args=(channel, nick, host, msg, False,))
+                self.op(channel, self.config('bot', 'nick'))
                 
-    def unban(self, host, auto_op=True):    
+    def unban(self, channel, host, auto_op=True):    
         '''
+            @param channel: Channel name
             @param host: User's hostmask
             @param auto_op: If set to true ensures that the bot is +o'd first
             @summary: Unbans a user from the channel
             @attention: Requires OP mode
         ''' 
-        if self._flags['o']:
-            self.send('MODE %s -b %s' % (self.current_channel, host))
+        if self.channel_flag(channel, 'o'):
+            self.send('MODE %s -b %s' % (channel, host))
         elif auto_op:
-            self.queue_op_add(target=self.unban, args=(host, False,))    
-            self.op(self.current_channel, self.params['nick'])
+            self.queue_op_add(channel, target=self.unban, args=(channel, host, False,))    
+            self.op(channel, self.config('bot', 'nick'))
     
-    def names(self): 
+    def members(self, channel): 
         '''
             @summary: Send a NAME command to get the list of usernames in the current channel
         '''       
-        self.send('NAMES %s' % self.current_channel)        
+        self.send('NAMES %s' % channel)        
     
-    def userhosts(self, names):
+    def userhosts(self, members):
         '''
-            @param names: Space separated string of upto 5 nicks
+            @param members: Space separated string of upto 5 nicks
             @summary: Send a USERHOST command to get the list of upto 5 userhosts in the current channel
         '''       
-        self.send("USERHOST %s" % names)
+        self.send("USERHOST %s" % members)
         
-    def action(self, msg):
+    def action(self, channel, msg):
         '''
             @param msg: Message to display
             @summary: Send an ACTION message
         '''
-        self.send("PRIVMSG %s :\x01ACTION %s\x01" % (self.current_channel, msg))
+        self.send("PRIVMSG %s :\x01ACTION %s\x01" % (channel, msg))
     
-    def op(self, chan, nick):
+    def op(self, channel, nick):
         '''
-            @param nick: Nick of the user to op
-            @param chan: The channel to op to
+            @param channel: Channel name
+            @param nick: Nick of the user to op            
             @summary: OPs the user in a given channel
         '''
-        self.send("PRIVMSG ChanServ :op %s %s" % (chan, nick))
+        self.send("PRIVMSG ChanServ :op %s %s" % (channel, nick))
         
-    def deop(self, chan, nick):
+    def deop(self, channel, nick):
         '''
-            @param nick: Nick of the user to deop
-            @param chan: The channel to deop from
+            @param channel: Channel name
+            @param nick: Nick of the user to deop            
             @summary: DEOPs the user in a given channel
         '''
-        self.send("PRIVMSG ChanServ :deop %s %s" % (chan, nick))                    
+        self.send("PRIVMSG ChanServ :deop %s %s" % (channel, nick))                    
     
     def parse_recv(self, recv):
         '''
@@ -834,8 +908,10 @@ class ActiveBot(BaseBot):
                     loop = loop and self.cmd_notice(line)
                 elif(line[1] == "NICK"):                        # NICK
                     loop = loop and self.cmd_nick(line)     
-                elif(line[1] == "MODE"):
+                elif(line[1] == "MODE"):                        # MODE
                     loop = loop and self.cmd_mode(line) 
+                elif(line[1] == "TOPIC"):                        # TOPIC
+                    loop = loop and self.cmd_topic(line) 
                     
                 # Control Messages
                 elif line[1] == "433":                          # NICK already in use                
@@ -846,6 +922,12 @@ class ActiveBot(BaseBot):
                     loop = loop and self.stat_motd(line)
                 elif line[1] == "376":                          # End of /MOTD command
                     loop = loop and self.stat_endmotd(line)
+                elif line[1] == "331":                          # NO TOPIC : Response
+                    loop = loop and self.stat_notopic(line)
+                elif line[1] == "332":                          # TOPIC : Response
+                    loop = loop and self.stat_topic_text(line)
+                elif line[1] == "333":                          # TOPIC_BY
+                    loop = loop and self.stat_topic_by(line)
                 elif line[1] == "353":                          # NAMES
                     loop = loop and self.stat_names(line)
                 elif line[1] == "366":                          # End of /NAMES list
@@ -897,7 +979,7 @@ class ActiveBot(BaseBot):
         '''
             @param line: The text received broken into tokens
             @summary: JOIN was received            
-        '''    
+        '''        
         return self.recv_join(line[0].lstrip(':'), line[2])
     
     def cmd_kick(self, line):
@@ -941,7 +1023,41 @@ class ActiveBot(BaseBot):
             else:                  
                 flags = flags[1:]
                 
-        return self.recv_mode(line[0].lstrip(':'), line[2], mode, flags, users)       
+        return self.recv_mode(line[0].lstrip(':'), line[2], mode, flags, users)
+    
+    def cmd_topic(self, line):
+        '''
+            @param line: The text received broken into tokens
+            @summary: TOPIC was received
+        '''                
+        return self.recv_topic(line[2], line[0].lstrip(':'), time.time(), ' '.join(line[3:]).lstrip(':')) 
+    
+    def stat_topic_text(self, line):
+        '''
+            @param line: The text received broken into tokens
+            @summary: TOPIC response
+        '''
+        self._topic[line[3]] = ' '.join(line[4:]).lstrip(':')
+        return True
+        #self._channels[line[3]]['topic'] = ' '.join(line[4:]).lstrip(':')
+        #return self.recv_topic(line[0].lstrip(':'), line[2], ' '.join(line[3:]).lstrip(':'))
+    
+    def stat_topic_by(self, line):
+        '''
+            @param line: The text received broken into tokens
+            @summary: TOPIC was set by
+        '''                
+        if self._topic.has_key(line[3]):
+            t = self._topic[line[3]]
+            self._topic.pop(line[3])
+        return self.recv_topic(line[3], line[4], line[5], t)
+        
+    def stat_notopic(self, line):
+        '''
+            @param line: The text received broken into tokens
+            @summary: No TOPIC is set
+        '''
+        return self.recv_notopic(line[3])
     
     def cmd_privmsg(self, line):
         '''
@@ -957,9 +1073,9 @@ class ActiveBot(BaseBot):
             @summary: The nick is already in use            
         '''                
         if not self._joined:
-            self.params['nick'] = self.orig_nick + str(random.randrange(1,65535)) 
-            Log.write('Retrying with nick %s' % self.params['nick'])
-            self._ghost = self.params['password'] is not None   # Ghost other user/bot if password is specified
+            self._config['bot']['nick'] = self.config('bot', 'attempt-nick') + str(random.randrange(1,65535)) 
+            Log.write('Retrying with nick %s' % self.config('bot', 'nick'))
+            self._ghost = self.config('bot', 'password') is not None   # Ghost other user/bot if password is specified
             Log.write("GHOST %s" % self._ghost)
             self.register()                                     # Retry registering
         return True
@@ -984,13 +1100,13 @@ class ActiveBot(BaseBot):
             @summary: End of MOTD            
         '''
         if self._ghost:                             # If ghosting requested
-            self.ghost(self.orig_nick)                    
+            self.ghost(self.config('bot', 'attempt-nick'))                    
             self._ghost = False
         else:
             self.identify()                         # Normal join, just identify
-            Thread(target=self._success_callback, args=(self,), name='callback').start()        # Call callback function
+            self.bot_connected()            
         
-        self.reset_flags(build=False)               # Give bot a fresh start
+        self.reset_flags(bubble=True, build=False)               # Give bot a fresh start
                             
         return True
     
@@ -1000,7 +1116,7 @@ class ActiveBot(BaseBot):
             @summary: NAMES is received
         '''
         for x in line[5:]:
-            self._names[x.strip(':@+')] = None      # Add names to current list
+            self._channels[line[4]]['members'][x.strip(':@+')] = None      # Add members to current list            
         return True
     
     def stat_endnames(self, line):
@@ -1019,7 +1135,9 @@ class ActiveBot(BaseBot):
             m = self._regexes['userhost'].search(uh)
             if m:
                 nick = m.group(1).lstrip(':@+')
-                self._names[nick] = User(nick + '!' + m.group(2))
+                for k in self.channels:
+                    if self._channels[k]['members'].has_key(nick):
+                        self._channels[k]['members'][nick] = User(nick + '!' + m.group(2))
                 self.on_recv_userhosts(nick, m.group(2))
         return True
         
@@ -1058,10 +1176,12 @@ class ActiveBot(BaseBot):
             @param reason: The reason for quit
         '''                    
         u = User(user, simple=True)
-        if self._names.has_key(u.nick):
-            self._names.pop(u.nick)
-        self.on_userlist_update()        
-        if u.nick == self.params['nick']:                    
+        for k, v in self._channels.items():
+            if u.nick in v['members'].keys():
+                self._channels[k]['members'].pop(u.nick)
+                #self._members[k].pop(u.nick)
+                self.on_userlist_update(k)
+        if u.nick == self.config('bot', 'nick'):                    
             if reason == "Disconnected by services":   # If bot is disconnected by services then do not retry [GHOSTING]
                 self.close()                                                      
             return False                                  # Terminate read thread
@@ -1074,10 +1194,10 @@ class ActiveBot(BaseBot):
             @param channel: The channel that was parted from
         '''        
         u = User(user, simple=True)
-        if self._names.has_key(u.nick):
-            self._names.pop(u.nick)    
-        self.on_userlist_update()
-        if u.nick == self.params['nick']:
+        if self.channel_member(channel, u.nick):
+            self._channels[channel]['members'].pop(u.nick)
+        self.on_userlist_update(channel)
+        if u.nick == self.config('bot', 'nick'):
             self.on_bot_part(channel)
         return True
     
@@ -1086,13 +1206,18 @@ class ActiveBot(BaseBot):
             @param user: The user that joined
             @param channel: The channel that was joined to
         '''
+        if not self._channels.has_key(channel): 
+            self._channels[channel] = {
+                                        'flags': [],
+                                        'members': {}
+                                       }
         if self._retry_channels.has_key(channel):
             self._retry_channels.pop(channel)
         u = User(user, simple=True)        
-        self._names[u.nick] = u        
-        self.on_userlist_update()
-        if u.nick == self.params['nick']:
-            self._names = {}
+        self._channels[channel]['members'][u.nick] = u
+        self.on_userlist_update(channel)
+        if u.nick == self.config('bot', 'nick'):
+            #self._members[channel] = {}         # Remove self name from userlist
             self.on_bot_join(channel)
             self._cv_userlist.acquire()
             self._cv_userlist.notify_all()
@@ -1106,10 +1231,10 @@ class ActiveBot(BaseBot):
             @param user: The user who got kicked
             @param reason: The reason for kicking 
         '''
-        if self._names.has_key(user):
-            self._names.pop(user)
-        self.on_userlist_update()
-        if user == self.params['nick']:                         # If bot is kicked
+        if self.channel_member(channel, user):
+            self._channels[channel]['members'].pop(user)
+        self.on_userlist_update(channel)
+        if user == self.config('bot', 'nick'):                         # If bot is kicked
             self._retry_channels[channel] = (10, 0)
             self._cv_autojoin.acquire()
             self._cv_autojoin.notify_all()
@@ -1124,25 +1249,30 @@ class ActiveBot(BaseBot):
             @param msg: The message received
         '''
         if msg.find(' has been ghosted') != -1:                 # Duplicate NICK has been ghosted
-            self.nick(self.orig_nick)                           # Claim original NICK
+            self.nick(self.config('bot', 'attempt-nick'))                           # Claim original NICK
             self.identify()                                     # Identify
-            Thread(target=self._success_callback, args=(self,), name='callback').start()        # Call callback function
+            self.bot_connected()
+            
         return True
     
-    def recv_nick(self, user, new_nick):
+    def recv_nick(self, nick, new_nick):
         '''
-            @param user: The user who issued NICK
+            @param nick: The nick who issued NICK
             @param new_nick: The new NICK
         '''                
-        u = User(user, simple=True)
-        if self._names.has_key(u.nick):
-            self._names.pop(u.nick)
-            self._names[new_nick] = u
-        self.on_userlist_update()        
-        if u.nick == self.params['nick']:
-            self.params['nick'] = new_nick
-            self.on_bot_nick_change(self.params['nick'])
-            self.call_listeners('botnick', None, u, self.params['nick'])            
+        u = User(nick, simple=True)
+        for k, v in self._channels.items():
+            if u.nick in v['members'].keys():
+                self._channels[k]['members'].pop(u.nick)
+                self._channels[k]['members'][new_nick]= u
+                #self._members[k].pop(u.nick)
+                #self._members[k][new_nick] = u
+                self.on_userlist_update(k)
+                                       
+        if u.nick == self.config('bot', 'nick'):
+            self._config['bot']['nick'] = new_nick
+            self.on_bot_nick_change(self.config('bot', 'nick'))
+            self.call_listeners('botnick', None, u, self.config('bot', 'nick'))            
         return True
     
     def recv_mode(self, source, channel, mode, flags, users):
@@ -1153,20 +1283,50 @@ class ActiveBot(BaseBot):
             @param flags: The flags issued
             @param users: The users specified
         '''        
-        if users and self.params['nick'] in users:    # Mode is set on an user and not on channel (hence the 4th index)                  
-            for c in flags:
-                self._flags[c] = (mode == '+')            
+        if users and self.config('bot', 'nick') in users:    # Mode is set on an user and not on channel (hence the 4th index)                  
+            for f in flags:
+                if f not in self._channels[channel]['flags'] and mode == '+':
+                    self._channels[channel]['flags'].append(f)
+                elif f in self._channels[channel]['flags'] and mode == '-':
+                    self._channels[channel]['flags'].remove(f)
             
             if mode == '+':
-                self.on_bot_mode_set()
+                self.on_bot_mode_set(channel)
             else:
-                self.on_bot_mode_reset()
+                self.on_bot_mode_reset(channel)
+        return True
+    
+    def recv_topic(self, channel, user, timestamp, topic):
+        '''
+            @param user: The user changing the TOPIC
+            @param channel: The channel name
+            @param topic: The new topic
+        '''        
+        self._channels[channel]['topic'] = {
+                                                'text'  : topic,
+                                                'user'    : user,
+                                                'time'  : timestamp
+                                            }    
+        return True
+    
+    def recv_notopic(self, channel):
+        '''
+            @param user: The user changing the TOPIC
+            @param channel: The channel name
+            @param topic: The new topic
+        '''
+        self._channels[channel]['topic'] = {
+                                                'text'  : '',
+                                                'by'    : None,
+                                                'time'  : 0
+                                            }
         return True
     
     def recv_privmsg(self, user, channel, msg):
         '''
-            @param source: The user sending the PRIVMSG
-            @param source: The message received
+            @param user: The user sending the PRIVMSG
+            @param channel: The channel name
+            @param msg: The message received
         '''            
         return True
             
@@ -1174,11 +1334,10 @@ class ActiveBot(BaseBot):
         '''
             @summary: Called when the bot is connected
         '''        
-        self._has_quit = self._restart_req = False
-        self._alive = True        
+        self.reset_flags(bubble=True, build=False)
         Log.write('Starting worker threads')
         Thread(target=self.server_ping, name='ActiveBot.server_ping').start()               # Start pinger thread
-        Thread(target=self.userlist_buildup, name='ActiveBot.userlist_buildup').start()     # Start userlist monitoring thread
+        Thread(target=self.memberlist_buildup, name='ActiveBot.memberlist_buildup').start()     # Start userlist monitoring thread
         Thread(target=self.autojoin_retry, name='ActiveBot.autojoin_retry').start()         # Start autojoin retry thread
     
     def on_bot_join(self, channel):
@@ -1186,26 +1345,25 @@ class ActiveBot(BaseBot):
             @param channel: The channel name
             @summary: Called when the bot joins a channel
         '''          
-        if channel not in self.params['chan']: 
-            self.params['chan'].insert(0, channel)     # Reset  channel from state, if parted
+        pass
     
     def on_bot_part(self, channel):
         '''
             @param channel: The channel name
             @summary: Called when the bot parts the channel
         '''        
-        if channel in self.params['chan']: 
-            self.params['chan'].remove(channel)     # Reset  channel from state, if parted
+        if self._channels.has_key(channel): 
+            self._channels.pop(channel)     # Reset  channel from state, if parted
     
-    def on_bot_mode_set(self):
+    def on_bot_mode_set(self, channel):
         '''
             @summary: Called when a mode is set on the bot
         '''
-        if self._flags['o']:
-            Thread(target=self.queue_op_process, name='QircBot.queue_op_process').start() 
+        if self.channel_flag(channel, 'o'):
+            Thread(target=self.queue_op_process, args=(channel,), name='QircBot.queue_op_process').start() 
         pass
     
-    def on_bot_mode_reset(self):
+    def on_bot_mode_reset(self, channel):
         '''
             @summary: Called when a mode is reset on the bot
         '''
@@ -1236,56 +1394,66 @@ class ActiveBot(BaseBot):
         if channel not in self._retry_channels: 
             self._retry_channels[channel] = (10, 0)     # Next try, Duration left
     
-    def on_userlist_complete(self):
+    def on_userlist_complete(self, channel):
         '''            
+            @param channel: The channel name
             @summary: Called when the the userlist has all entries completed
         '''
         pass
     
-    def on_userlist_update(self):
+    def on_userlist_update(self, channel):
         '''            
             @summary: Called when the the userlist is changed
         '''
-        Log.write('Updated Userlist: %s' % self._names.keys(), 'D')
+        Log.write('Updated Userlist: %s : %s' % (channel, self.channel_members(channel).keys()), 'D')
         pass
+    
+    def dispatch_userlist_update(self, nick):
+        '''
+            @summary: Triggers userlist update for all channels the user is part of 
+        '''
+        for k, v in self._channels.items():
+            if nick in v['members'].keys():
+                self.on_userlist_update(k)
     
 class ArmageddonBot(ActiveBot):
     '''
         @summary: Incorporates complex functionality into the bot
-        @version: 4.0
+        @version: 5.0
     '''    
     
-    def __init__(self, callback, params=None):
+    def __init__(self, config=None, callback=None):
         '''
+            @param config    : Configuration for the bot
             @param callback  : A callback function to be called when bot is successfully registered
-            @param params    : Parameters for the bot,
-                             Default:
-                                  'host'        : 'irc.freenode.net'
-                                  'port'        : 6667
-                                  'nick'        : 'QircBot'
-                                  'ident'       : 'QircBot'
-                                  'realname'    : 'QirckyBot'  
-                                  'password'    : None                             
         '''
-        super(QircBot, self).__init__(callback, params)
-        self.reset_flags(False)
+        super(QircBot, self).__init__(config, callback)        
+        
+        self.reset_flags(bubble=False, build=True)
                 
         self._masters = {
                             'admin' :   {
                                             'auth'    : 0,
-                                            'members' : ['unaffiliated/nbaztec'],
+                                            'members' : self.config('bot', 'owner'),
                                             'powers'  : None
                                         },
                             'mod'   :   {   
-                                            'auth'    : 1,                      
+                                            'auth'    : 50,                      
                                             'members' : [],
                                             'powers'  : ['help', 'flags', 'op', 'kick', 'enforce', 'ban', 'module', 'users', 'armageddon']
                                         },
                             'mgr'   :   {                
-                                            'auth'    : 2,         
+                                            'auth'    : 150,
                                             'members' : [],
                                             'powers'  : ['help', 'flags', 'op', 'kick', 'enforce', 'ban', 'unban']
                                         },
+                            'chan_mgr'   :   {                
+                                            'auth'    : 254,
+                                            'channels' : {
+                                                            '#nbaztec': ['unaffiliated/nbaztec']
+                                                          },
+                                            'powers'  : ['help', 'flags', 'op', 'kick', 'enforce', 'ban', 'unban']
+                                        },                             
                             'others':   {                
                                             'auth'    : 255,         
                                             'members' : ['.*'],
@@ -1297,7 +1465,7 @@ class ArmageddonBot(ActiveBot):
         
         # Module Managers
         self._extmgr = DynamicExtensionManager()   
-        self._cmdmgr = DynamicCommandManager()
+        self._cmdmgr = DynamicCommandManager()        
         
         # Load State
         self.load_state()
@@ -1317,16 +1485,21 @@ class ArmageddonBot(ActiveBot):
         '''
         self._special_users = []                        # Prepare special list of users for optimizing match timings
         for k, v in self._masters.items():
-            if k != 'others':                           # Ensure others is last
+            if k == 'chan_mgr':
+                l = []
+                for m in v['channels'].values():                    
+                    l.extend(m)
+                l = list(set(l))
+                self._special_users.append('(?P<%s>%s)' % (k, '|'.join(l)))
+            elif k != 'others':                           # Ensure others is last
                 self._special_users.append('(?P<%s>%s)' % (k, '|'.join(v['members'])))
         self._special_users.append('(?P<%s>%s)' % ('others', '|'.join(self._masters['others']['members'])))
         self._regexes['special'] = re.compile(r'^([^!]+)!(~*[^@]+)@(%s)$' % '|'.join(self._special_users))         # Regex for matching hostmask of users
         
         User.set_special_regex(self._regexes['special'])
-        
+            
     def load_commands(self):
-        '''
-            @param reload_cmds: True if the modules have to be reloaded, False otherwise
+        '''            
             @summary: Loads modules dynamically into the bot 
         '''
         for module_file in [Commands]:            
@@ -1339,7 +1512,7 @@ class ArmageddonBot(ActiveBot):
                     if self._cmdmgr.add(obj(self), False):
                         Log.write('[!] %s replaced previous command with same key' % name)
             self._cmdmgr.build_regex()
-                                    
+        
         self._cmdmgr.reload()       # Call reload on every module
         return True
             
@@ -1347,7 +1520,7 @@ class ArmageddonBot(ActiveBot):
         '''
             @param key: A string identifying the module to load
             @summary: Loads a command dynamically into the bot  
-        '''
+        '''        
         for module_file in [Commands]:            
             Log.write('Reloading %s' % module_file.__name__)
             reload(module_file)                        
@@ -1364,7 +1537,7 @@ class ArmageddonBot(ActiveBot):
     
     def load_extensions(self, ext_type=0):
         '''
-            @param reload_mods: True if the modules have to be reloaded, False otherwise
+            @param ext_type: Type of extension to load 0:Both, 1:Internal, 2:External 
             @summary: Loads modules dynamically into the bot 
         '''
         
@@ -1407,9 +1580,10 @@ class ArmageddonBot(ActiveBot):
             Log.write('Importing Extension in %s ' % module_file.__name__)
             for name, obj in inspect.getmembers(module_file, predicate=inspect.isclass):
                 if inspect.isclass(obj) and obj.__bases__[0].__name__ == "BaseDynamicExtension":
-                    if obj(self).key == key:
+                    instance = obj(self)
+                    if instance.key == key:
                         Log.write('Importing : %s' % name)
-                        self._extmgr.add(obj(self), False)
+                        self._extmgr.add(instance, False)
                         self._extmgr.build_regex()
                         self._extmgr.reload(key)
                         return True
@@ -1498,10 +1672,10 @@ class ArmageddonBot(ActiveBot):
             @param nick: User's nick
             @return: User's complete username or None
         '''
-        if self._names.has_key(nick):
-            return self._names[nick]
-        else:
-            return None
+        for v in self._channels.values():
+            if nick in v['members'].keys():
+                return v[nick]        
+        return None
         
     def get_user_info(self, user):
         '''
@@ -1533,35 +1707,49 @@ class ArmageddonBot(ActiveBot):
         if 'cmd' in only:
             self._cmdmgr.call_listeners(key, channel, user, args)
         
-    def user_list(self):
+    def user_list(self, channel=None, sort=False):
         '''
             @summary: Returns the list of masters as a dict
         '''
-        d = {}
-        for k, v in self._masters.items():
-            if k != "others":
-                d[k] = v['members']
-        return d.items()
+        d = []
+        sdict = self._masters.items()
+        if sort:
+            sdict = sorted(sdict, key=lambda x: x[1]['auth'])
+        for k, v in sdict:
+            if k == 'chan_mgr':
+                l = []
+                for c,m in v['channels'].items():
+                    l.append('%s = %s' % (c, ';'.join(m)))
+                d.append((k, l))
+            elif k != "others":
+                d.append((k, v['members']))
+        return d
     
-    def power_list(self):
+    def power_list(self, sort=False):
         '''
             @summary: Returns the list of groups and their powers as a dict
         '''
-        d = {}
-        for k, v in self._masters.items():
+        d = []
+        sdict = self._masters.items()
+        if sort:
+            sdict = sorted(sdict, key=lambda x: x[1]['auth'])
+        for k, v in sdict:
             if k != "others":
-                d[k] = v['powers']
-        return d.items()
+                d.append((k, v['powers']))
+        return d
     
-    def role_list(self):
+    def role_list(self, sort=False):
         '''
             @summary: Returns the list of groups and their auths as a dict
         '''
-        d = {}
-        for k, v in self._masters.items():
+        d = []
+        sdict = self._masters.items()
+        if sort:
+            sdict = sorted(sdict, key=lambda x: x[1]['auth'])
+        for k, v in sdict:
             if k != "others":
-                d[k] = v['auth']
-        return d.items()
+                d.append((k, v['auth']))
+        return d
             
     def role_power(self, role, power, remove=False):
         '''
@@ -1597,39 +1785,60 @@ class ArmageddonBot(ActiveBot):
             self._masters.pop(role)            
             return True
                       
-    def user_add(self, role, hostname):
+    def user_add(self, role, hostname, channel=None):
         '''
             @param role: The group of user
             @param hostname: The hostname of user
             @summary: Adds the hostname to a specified group of masters
         '''
         if self._masters.has_key(role):
-            if hostname not in self._masters[role]['members']:
+            if role == 'chan_mgr':
+                if channel:
+                    if not self._masters[role]['channels'].has_key(channel):
+                        self._masters[role]['channels'][channel] = []
+                    if hostname not in self._masters[role]['channels'][channel]:
+                        self._masters[role]['channels'][channel].append(hostname)
+                        self.regex_prepare_users()
+                        return True
+            elif hostname not in self._masters[role]['members']:
                 self._masters[role]['members'].append(hostname)
                 self.regex_prepare_users()
-                return True
+                return True        
     
-    def user_remove(self, role, hostname):
+    def user_remove(self, role, hostname, channel=None):
         '''
             @param role: The group of user
             @param hostname: The hostname of user
             @summary: Removes the hostname from a specified group of masters
         '''
         if self._masters.has_key(role):
-            if hostname in self._masters[role]['members']:
+            if role == 'chan_mgr':
+                if channel and self._masters[role]['channels'].has_key(channel) and hostname in self._masters[role]['channels'][channel]:
+                    self._masters[role]['channels'][channel].remove(hostname)
+                    self.regex_prepare_users()
+                    if len(self._masters[role]['channels'][channel]) == 0:
+                        self._masters[role]['channels'].pop(channel)
+                    return True
+            elif hostname in self._masters[role]['members']:
+                if role == 'admin' and len(self._masters[role]['members']) == 1:
+                    return None
                 self._masters[role]['members'].remove(hostname)
                 self.regex_prepare_users()
-                return True
+                return True        
             
-    def user_auth(self, user=None, role=None):
+    def user_auth(self, hostmask=None, role=None):
         '''
-            @param user: The user's hostmask
+            @param hostmask: The hostmask's hostmask
             @param role: The group name
-            @summary: Returns the authority level of the user or group
+            @summary: Returns the authority level of the hostmask or group
         '''
-        if user:
+        if hostmask:
             for v in self._masters.values():
-                if user in v['members']:
+                if v.has_key('channels'):
+                    for c in v['channels'].values():
+                        if hostmask in c:
+                            return v['auth']
+                elif hostmask in v['members']:
                     return v['auth']
         elif role:
             if self._masters.has_key(role):
@@ -1651,20 +1860,26 @@ class ArmageddonBot(ActiveBot):
         else:
             return False;
         
-    def retry_channels(self):
+    def retry_channels(self, channels=None):
         '''
+            @param channels: List of channels to set
             @returns: List of channels
         '''
-        return self._retry_channels.keys()
+        if channels:
+            for c in channels:
+                self.add_retry_channel(c)
+        else:
+            return self._retry_channels.keys()
         
     # Overriden recv methods
-    def reset_flags(self, bubble=True, build=True):
+    def reset_flags(self, bubble, build):
         '''
             @param bubble: Whether to reset the flags in the base class
+            @param build: If true, then status_flags are initialized
             @summary: Resets the state flags of the bot 
         '''        
         if bubble:
-            super(ArmageddonBot, self).reset_flags(build)
+            super(ArmageddonBot, self).reset_flags(bubble, build)
                        
     def cmd_join(self, line):
         '''
@@ -1679,8 +1894,8 @@ class ArmageddonBot(ActiveBot):
             @summary: Called when the bot joins a channel
         ''' 
         super(ArmageddonBot, self).on_bot_join(channel)
-        self.names()
-        self.say('All systems go!')
+        self.members(channel)
+        self.say(channel, 'All systems go!')
         
     def cmd_nick(self, line):
         '''
@@ -1695,10 +1910,12 @@ class ArmageddonBot(ActiveBot):
             @param reason: The reason for quit
         '''
         u = User(user, masters=self._masters)
-        if u.nick == self.params['nick']:
+        if u.nick == self.config('bot', 'nick'):
             self.call_listeners('botquit', None, u, reason)
         else:
-            self.call_listeners('quit', None, u, reason)            
+            for k, v in self._channels.items():
+                if u.nick in v['members'].keys():
+                    self.call_listeners('quit', k, u, reason)            
         return super(ArmageddonBot, self).recv_quit(user, reason)
             
     def recv_part(self, user, channel, reason):
@@ -1707,8 +1924,10 @@ class ArmageddonBot(ActiveBot):
             @param channel: The channel that was parted from
         '''        
         u = User(user, masters=self._masters)
-        if u.nick != self.params['nick']:
+        if u.nick != self.config('bot', 'nick'):
             self.call_listeners('part', channel, u, reason)
+        else:
+            self.call_listeners('botpart', channel, u, reason)
         return super(ArmageddonBot, self).recv_part(user, channel, reason)
     
     def recv_kick(self, source, channel, user, reason):
@@ -1718,8 +1937,8 @@ class ArmageddonBot(ActiveBot):
             @param user: The user who got kicked
             @param reason: The reason for kicking 
         '''
-        if self._names.has_key(user) and self._names[user]:
-            self.call_listeners('kick', channel, self._names[user], (User(source, masters=self._masters), reason))            
+        if self.channel_member(channel, user):
+            self.call_listeners('kick', channel, self.channel_member(channel, user), (User(source, masters=self._masters), reason))            
         return super(ArmageddonBot, self).recv_kick(source, channel, user, reason)
     
     def recv_ping(self, server):
@@ -1763,13 +1982,15 @@ class ArmageddonBot(ActiveBot):
         else:
             return False
     
-    def recv_nick(self, user, new_nick):
+    def recv_nick(self, nick, new_nick):
         '''
-            @param user: The user who issued NICK
+            @param nick: The nick who issued NICK
             @param new_nick: The new NICK
         '''
-        if super(ArmageddonBot, self).recv_nick(user, new_nick):            
-            self.call_listeners('nick', None, User(user, masters=self._masters), new_nick)      
+        if super(ArmageddonBot, self).recv_nick(nick, new_nick):
+            for k, v in self._channels.items():
+                if nick in v['members'].keys():
+                    self.call_listeners('nick', k, User(nick, masters=self._masters), new_nick)      
             return True
         else:
             return False
@@ -1788,14 +2009,31 @@ class ArmageddonBot(ActiveBot):
         else:
             return False
         
+    def recv_topic(self, channel, user, timestamp, topic):
+        '''
+            @param user: The user changing the TOPIC
+            @param channel: The channel name
+            @param topic: The new topic
+        '''            
+        if super(ArmageddonBot, self).recv_topic(channel, user, timestamp, topic):
+            self.call_listeners('topic', channel, User(user, masters=self._masters), (timestamp, topic))
+            return True
+        else:
+            return False
+    
     def recv_privmsg(self, user, channel, msg):
         '''
-            @param source: The user sending the PRIVMSG
-            @param source: The message received
-        '''
+            @param user: The user sending the PRIVMSG
+            @param channel: The channel name
+            @param msg: The message received
+        '''        
         if super(ArmageddonBot, self).recv_privmsg(user, channel, msg):            
-            if channel == self.current_channel:
-                self.call_listeners('msg', channel, User(user, masters=self._masters), msg)
+            if channel.startswith('#'):
+                m = re.match(r'\x01ACTION (.*)\x01', msg)
+                if m:                                        
+                    self.call_listeners('action', channel, User(user, masters=self._masters), m.group(1))
+                else:
+                    self.call_listeners('msg', channel, User(user, masters=self._masters), msg)
             else:
                 self.call_listeners('privmsg', None, User(user, masters=self._masters), msg, only=['cmd'])
             return True
@@ -1819,8 +2057,8 @@ class ArmageddonBot(ActiveBot):
             @summary: End of NAMES
             @notice: Used to implement armageddon            
         '''
-        Log.write("Usernames %s" % self._names)        
-        return super(ArmageddonBot, self).stat_endnames(line)    
+        Log.write("Usernames %s" % self._channels)        
+        return super(ArmageddonBot, self).stat_endnames(line)
     
     def stat_endmotd(self, line):
         '''
@@ -1840,12 +2078,12 @@ class ArmageddonBot(ActiveBot):
             @notice: Used to implement commands and actions
         '''
         u = User(line[0].lstrip(':'), masters=self._masters)
-        if line[2] == self.params['nick']:                              # If message is a privmsg for bot                    
+        if line[2] == self.config('bot', 'nick'):                              # If message is a privmsg for bot                    
             if u.role and self.get_status('hear') or u.auth == 0:       # If a valid user and hearing is enabled or user is admin
                 Thread(target=self.parse_cmd, args=(u, str.lstrip(' '.join(line[3:]),':'),), name='parse_cmd').start()                        
         elif self.get_status('voice'):            
             if u.role:                                                  # Call extended parser in separate thread                    
-                Thread(target=self.parse_msg, args=(u, str.lstrip(' '.join(line[3:]),':'),), name='extended_parse').start()
+                Thread(target=self.parse_msg, args=(line[2], u, str.lstrip(' '.join(line[3:]),':'),), name='extended_parse').start()
         
         return super(ArmageddonBot, self).cmd_privmsg(line) 
     
@@ -1855,12 +2093,16 @@ class ArmageddonBot(ActiveBot):
         '''
             @summary: Called when the bot terminates
         '''
+        Log.write("Bot terminated")
         self.save_state()                                     # Save state
         
         if not self.close_requested():                        # Restart was requested
+            Log.write('Attempting to restart')
             self._restart_req = True
             self._sock.close()
+            Log.write('Notifying all threads')
             self.notify_all_threads()
+            Log.write('Waiting for 5 seconds')
             time.sleep(5)                                     # Wait 5 seconds
             Log.write("Resurrecting...")            
             self._sock = socket.socket();
@@ -1870,12 +2112,12 @@ class ArmageddonBot(ActiveBot):
             self.notify_all_threads()
             Log.write('Bits thou art, to bits thou returnest, was not spoken of....Boom! Owww. *Dead*')            
                             
-    def on_bot_mode_set(self):        
+    def on_bot_mode_set(self, channel):        
         '''
             @summary: Called when a mode is set on the bot.
             @note: Used to trigger commands in queue requiring OP
         '''        
-        super(self.__class__, self).on_bot_mode_set()
+        super(self.__class__, self).on_bot_mode_set(channel)
     
     def on_recv_userhosts(self, nick, userhost):
         '''
@@ -1885,19 +2127,20 @@ class ArmageddonBot(ActiveBot):
         '''
         super(self.__class__, self).on_recv_userhosts(nick, userhost)
     
-    def on_userlist_complete(self):
+    def on_userlist_complete(self, channel):
         '''            
+            @param channel: The channel name
             @summary: Called when the the userlist has all entries completed
         '''
-        if len(self._names):
-            self.call_listeners('userlist', None, None, self._names)
+        if len(self._channels[channel]['members']):
+            self.call_listeners('userlist', channel, None, self._channels[channel]['members'])
     
     # Persistence
     def save_state(self):
         '''
             @summary: Saves the state of the bot and the modules
         '''
-        pickler = cPickle.Pickler(open('Qirc.pkl', 'wb'))        
+        pickler = cPickle.Pickler(open('qirc.pkl', 'wb'))        
         pickler.dump(self._masters)                
         pickler.dump(self._extmgr.get_state())      # Dump Modules
         pickler.dump(self._cmdmgr.get_state())      # Dump Command Modules        
@@ -1907,10 +2150,17 @@ class ArmageddonBot(ActiveBot):
         '''
             @summary: Loads the state of the bot and the modules
         '''
-        if path.exists('Qirc.pkl'):            
-            pickler = cPickle.Unpickler(open('Qirc.pkl', 'rb'))
-            try:                
-                self._masters = pickler.load()                
+        if path.exists('qirc.pkl'):            
+            pickler = cPickle.Unpickler(open('qirc.pkl', 'rb'))
+            try:        
+                # Load admins from config
+                admins = self._masters['admin']['members']
+                self._masters = pickler.load()
+                # Combine both admins
+                for a in admins:
+                    if a not in self._masters['admin']['members']:
+                        self._masters['admin']['members'].append(a)
+                        
                 self._extmgr.set_state(pickler.load())      # Mangers will handle pickle errors themselves
                 self._cmdmgr.set_state(pickler.load())      # Mangers will handle pickle errors themselves                
             except:
@@ -1925,7 +2175,7 @@ class ArmageddonBot(ActiveBot):
             @param cmd: Command from standard input
             @summary: Parses the command from PM to bot
         '''
-        (key, result, success) = self._cmdmgr.parse_line(user, cmd) or (None, None, None)
+        (key, result, success) = self._cmdmgr.parse_line(None, user, cmd) or (None, None, None)
         if key:            
             if result:
                 self.send_multiline(self.notice, user.nick, result.output)
@@ -1934,10 +2184,10 @@ class ArmageddonBot(ActiveBot):
                 if user.powers is None:
                     self.send(cmd)
                 else:
-                    self.notice(user.nick, 'You are not authorized to perform this operation. Type /msg %s help to see your list of commands' % self.params['nick'])
+                    self.notice(user.nick, 'You are not authorized to perform this operation. Type /msg %s help to see your list of commands' % self.config('bot', 'nick'))
         return True
     
-    def parse_msg(self, user, msg):
+    def parse_msg(self, channel, user, msg):
         '''
             @param role: The group of user
             @param nick: Nick of user
@@ -1946,12 +2196,12 @@ class ArmageddonBot(ActiveBot):
             @summary: Specifies additional rules as the general purpose responses
         '''
         Log.write("Parse Message %s" % msg)              
-        _, result, success = self._extmgr.parse_line(user, msg) or (None, None, None)            
+        _, result, success = self._extmgr.parse_line(channel, user, msg) or (None, None, None)            
         if not success:
             if result:
                 self.send_multiline(self.notice, user.nick, result.output)                                                    
         elif result:
-            self.say(result.output)
+            self.say(channel, result.output)
 
 
 # Use the final Bot as QircBot

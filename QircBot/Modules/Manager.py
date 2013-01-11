@@ -376,7 +376,7 @@ class DynamicExtensionManager(BaseManager, ListenerManager):
         else:    
             return (None, None)
                     
-    def parse(self, user, key, args):
+    def parse(self, channel, user, key, args):
         '''
             @param key: A string identifying the module
             @summary: Parses the command for the specified module
@@ -387,7 +387,7 @@ class DynamicExtensionManager(BaseManager, ListenerManager):
             parser = self._modules[key].parser        
             try:
                 args = self.arg_split(args)
-                return key, self._modules[key].output(user.nick, user.host, user.auth, user.powers, parser.parse_args(args)), True
+                return key, self._modules[key].output(channel, user, parser.parse_args(args)), True
             except ValueError, e:
                 Log.error("ParserError: %s" % e.message)
                 return key, ModuleResult("Parser Error '%s': %s" % (key, e)), False
@@ -399,13 +399,13 @@ class DynamicExtensionManager(BaseManager, ListenerManager):
         else:
             return key, ModuleResult("Module is disabled"), False
     
-    def parse_line(self, user, line):
+    def parse_line(self, channel, user, line):
         '''
             @summary: Checks a line for a command and returns the result of the parse
         '''
         
         key, args = self.check(user, line)        
-        return self.parse(user, key, args)
+        return self.parse(channel, user, key, args)
         
 class DynamicCommandManager(DynamicExtensionManager):
     '''
@@ -419,7 +419,8 @@ class DynamicCommandManager(DynamicExtensionManager):
         '''
             @summary: Calls the listener on all modules registered for it
         '''
-        if (key != 'privmsg' or user.powers is None or key in user.powers) and self._listeners.has_key(key):
+        #if (key != 'privmsg' or user.powers is None or key in user.powers) and self._listeners.has_key(key):
+        if self._listeners.has_key(key):
             for o in self._listeners[key]:
                 try:
                     if o.event(key, channel, user, line):
@@ -430,7 +431,7 @@ class DynamicCommandManager(DynamicExtensionManager):
         else:
             return False
                     
-    def parse(self, user, key, args):
+    def parse(self, channel, user, key, args):
         '''
             @param key: A string identifying the module
             @summary: Parses the command for the specified module
@@ -442,7 +443,7 @@ class DynamicCommandManager(DynamicExtensionManager):
                 parser = self._modules[key].parser        
                 try:
                     args = self.arg_split(args)
-                    return key, self._modules[key].output(user.nick, user.host, user.auth, user.powers, parser.parse_args(args)), True
+                    return key, self._modules[key].output(channel, user, parser.parse_args(args)), True
                 except ValueError, e:
                     Log.error("ParserError: %s" % e.message)
                     return key, ModuleResult('Parser Error: %s' % e), False

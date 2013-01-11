@@ -7,11 +7,13 @@ Created on Jun 8, 2012
 import urllib
 import urllib2
 from Util.BeautifulSoup import BeautifulSoup
+from Util.Config import ConfigManager
 from Util.Log import Log
 
-appid = {
-            'worldweather'    : '',
-        }
+config = ConfigManager.read_config('extensions.conf', 'worldweather')
+#config = {
+#            'worldweather'    : '8c7d2c19fc192331121509',
+#        }
 
 
 def to_celcius(f):
@@ -59,7 +61,7 @@ def weather(place):
         @summary: Performs a urban dictionary search and returns the first result
     '''     
     try:
-        response = urllib2.urlopen('http://free.worldweatheronline.com/feed/weather.ashx?format=xml&fx=no&extra=localObsTime&key=%s&q=%s' % (appid['worldweather'], urllib.quote(place)))        
+        response = urllib2.urlopen('http://free.worldweatheronline.com/feed/weather.ashx?format=xml&fx=no&extra=localObsTime&key=%s&q=%s' % (config['app-id'], urllib.quote(place)))        
         page = response.read()                            
         response.close()
         soup = BeautifulSoup(page)
@@ -81,7 +83,7 @@ def forecast(place, num=3):
         @summary: Performs a urban dictionary search and returns the first result
     '''     
     try:
-        response = urllib2.urlopen('http://free.worldweatheronline.com/feed/weather.ashx?format=xml&num_of_days=%d&key=%s&q=%s' % (num, appid['worldweather'], urllib.quote(place)))        
+        response = urllib2.urlopen('http://free.worldweatheronline.com/feed/weather.ashx?format=xml&num_of_days=%d&key=%s&q=%s' % (num, config['app-id'], urllib.quote(place)))        
         page = response.read()                            
         response.close()
         soup = BeautifulSoup(page)

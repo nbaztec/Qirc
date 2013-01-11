@@ -28,16 +28,16 @@ class ConvertWeightModule(BaseDynamicExtension):
         parser.add_argument("weight", default=0, type=float, help="Convert weight to pounds/kilograms", metavar="WEIGHT")
         return parser
         
-    def output(self, nick, host, auth, powers, options):        
+    def output(self, channel, user, options):        
         if options.reverse:
             r = '%.2f lb = %.2f kg' % (options.weight, options.weight * 0.453592)
         else:
             r = '%.2f kg = %.2f lb' % (options.weight, options.weight * 2.20462)
         
         if options.private:
-            self._bot.notice(nick, r)
+            self._bot.notice(user.nick, r)
         else:
-            return ModuleResult('%s, %s' % (r, nick))
+            return ModuleResult('%s, %s' % (r, user.nick))
                        
 class LolModule(BaseDynamicExtension):
     '''
@@ -46,12 +46,12 @@ class LolModule(BaseDynamicExtension):
             
     def build_meta(self, metadata):
         metadata.key = "demo_lol"
-        metadata.listeners = ["msg"]            
+        metadata.listeners = ["msg", "action"]            
         
     def event(self, key, channel, user, args):
-        if key == 'msg' and self.is_enabled():
+        if (key == 'msg' or key == 'action') and self.is_enabled():
             if args.find('lol') != -1:
-                self.bot.say("LAUGHING OUT LOUD!!!111112")
+                self.bot.say(channel, "LAUGHING OUT LOUD!!!111112")
                 
 class HolyModule(BaseDynamicExtension):
     '''
@@ -60,14 +60,14 @@ class HolyModule(BaseDynamicExtension):
             
     def build_meta(self, metadata):
         metadata.key = "demo_holy"
-        metadata.listeners = ["msg"]
+        metadata.listeners = ["msg", "action"]
         metadata.interface = EnforcerInterface        
         self.regex = re.compile(r'\b(fuck|asshole|(mother|sister)fucker)\b', re.I)
                     
     def event(self, key, channel, user, args):
-        if key == 'msg' and self.is_enabled():
+        if (key == 'msg' or key == 'action') and self.is_enabled():
             if self.regex.search(args):
-                self.bot.kick(user.nick, "NO SWEARING")
+                self.bot.kick(channel, user.nick, "NO SWEARING")
                 
 class AntiVyomModule(BaseDynamicExtension):
     '''
@@ -76,13 +76,13 @@ class AntiVyomModule(BaseDynamicExtension):
             
     def build_meta(self, metadata):
         metadata.key = "demo_vyomic"
-        metadata.listeners = ["msg"]
+        metadata.listeners = ["msg", "action"]
         metadata.interface = EnforcerInterface
                     
     def event(self, key, channel, user, args):
-        if key == 'msg' and self.is_enabled():            
+        if (key == 'msg' or key == 'action') and self.is_enabled():            
             if user.host == "unaffiliated/vy0m" and re.search(r'\bnvm\b', args, re.I):
-                self.bot.kick(user.nick, "NVM? U NO KURT COBAIN!")
+                self.bot.kick(channel, user.nick, "NVM? U NO KURT COBAIN!")
 
 class SubstModule(BaseDynamicExtension):
     '''
@@ -104,9 +104,9 @@ class SubstModule(BaseDynamicExtension):
                     l, c = re.subn(m.group(1), m.group(2), line, 1 if m.group(3).find('g') == -1 else 0, re.I if m.group(3).find('i') != -1 else 0)
                     if c:
                         if nick == user.nick:
-                            self.bot.say('%s meant "%s"' % (nick, l))
+                            self.bot.say(channel, '%s meant "%s"' % (nick, l))
                         else:                        
-                            self.bot.say('%s implies %s meant "%s"' % (user.nick, nick, l))
+                            self.bot.say(channel, '%s implies %s meant "%s"' % (user.nick, nick, l))
                         break
             else:
                 self._last5lines.insert(0, (user.nick, args))
@@ -133,7 +133,7 @@ class TimeModule(BaseDynamicExtension):
         parser.add_argument("int_timestamp", default=0, nargs="?", type=int, help="Decode a UNIX timestamp", metavar="TIMESTAMP")
         return parser
         
-    def output(self, nick, host, auth, powers, options):
+    def output(self, channel, user, options):
         # Internal classes for timezones        
         class TZ_UTC(datetime.tzinfo):
             def utcoffset(self, dt):
@@ -166,6 +166,6 @@ class TimeModule(BaseDynamicExtension):
                 r = datetime.datetime.now(TZ_IST()).strftime('%a, %d %b %Y %H:%M:%S %z')
         if r:
             if options.private:
-                self._bot.notice(nick, r)
+                self._bot.notice(user.nick, r)
             else:
-                return ModuleResult('%s, %s' % (r, nick))
+                return ModuleResult('%s, %s' % (r, user.nick))

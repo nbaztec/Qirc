@@ -19,7 +19,7 @@ class ThreadQueue(object):
         self._count = 0;
     
     @property       
-    def Length(self): return self._count;
+    def length(self): return self._count;
     
     def put(self, func, args=(), kwargs={}):
         '''

@@ -6,7 +6,7 @@ Created on Jul 30, 2012
 from QircBot.Interfaces.BotInterface import EnforcerInterface, PrivilegedInterface
 from Module import BaseDynamicExtension, ModuleResult
 from Util.SimpleArgumentParser import SimpleArgumentParser
-from Extensions import Search, Calc, Define, Weather, Locate, Url, Roll, User, Vote, Game, AI
+from Extensions import Search, Calc, Define, Weather, Locate, Url, Roll, User, Vote, Game, AI, Timer
 from Util import Chronograph
 from Util import htmlx
 
@@ -27,7 +27,7 @@ class HelpModule(BaseDynamicExtension):
     def build_parser(self):
         return SimpleArgumentParser(prog="!help")
         
-    def output(self, nick, host, auth, powers, options):
+    def output(self, channel, user, options):
         max_len = 1
         l = [] 
         for _, v in self._bot.modules():
@@ -42,7 +42,7 @@ class HelpModule(BaseDynamicExtension):
         s = ''
         for m in l:
             s += ('%-' + str(max_len+2) + 's%s\n') % m
-        self._bot.send_multiline(self._bot.notice, nick, s.rstrip())
+        self._bot.send_multiline(self._bot.notice, user.nick, s.rstrip())
             
 class SearchModule(BaseDynamicExtension):
     '''
@@ -74,7 +74,7 @@ class SearchModule(BaseDynamicExtension):
     def reload(self):
         reload(Search)
         
-    def output(self, nick, host, auth, powers, options):              
+    def output(self, channel, user, options):              
         args = ' '.join(options.args)                
         single = not options.verbose
         if options.custom:
@@ -96,9 +96,9 @@ class SearchModule(BaseDynamicExtension):
         
         if r:
             if options.private:
-                self._bot.notice(nick, r)
+                self._bot.notice(user.nick, r)
             else:
-                return ModuleResult('%s , %s' % (r, nick))      # Space introduced because some clients use comma as URL-part as per RFC3986    
+                return ModuleResult('%s , %s' % (r, user.nick))      # Space introduced because some clients use comma as URL-part as per RFC3986    
         
 
 class CalculationModule(BaseDynamicExtension):
@@ -123,7 +123,7 @@ class CalculationModule(BaseDynamicExtension):
     def reload(self):
         reload(Calc)
         
-    def output(self, nick, host, auth, powers, options):              
+    def output(self, channel, user, options):              
         args = ' '.join(options.args)
         if options.google:
             r = Calc.googlecalc(args)
@@ -133,9 +133,9 @@ class CalculationModule(BaseDynamicExtension):
             r = "I can't solve that"
         if r:
             if options.private:
-                self._bot.notice(nick, r)
+                self._bot.notice(user.nick, r)
             else:
-                return ModuleResult('%s, %s' % (r, nick))
+                return ModuleResult('%s, %s' % (r, user.nick))
         
 
 class DefinitionModule(BaseDynamicExtension):
@@ -164,7 +164,7 @@ class DefinitionModule(BaseDynamicExtension):
     def reload(self):
         reload(Define)
         
-    def output(self, nick, host, auth, powers, options):              
+    def output(self, channel, user, options):              
         args = ' '.join(options.args)                     
         if options.google:
             r = Define.googledefine(args, options.result)
@@ -180,9 +180,9 @@ class DefinitionModule(BaseDynamicExtension):
             r = Define.urbandefine(args, options.result)
         if r:            
             if options.private:
-                self._bot.notice(nick, r.replace('\r', ' '))
+                self._bot.notice(user.nick, r.replace('\r', ' '))
             else:
-                return ModuleResult('%s, %s' % (r.replace('\r', ' '), nick))
+                return ModuleResult('%s, %s' % (r.replace('\r', ' '), user.nick))
             
 class QuoteModule(BaseDynamicExtension):
     '''
@@ -207,7 +207,7 @@ class QuoteModule(BaseDynamicExtension):
     def reload(self):
         reload(Define)
         
-    def output(self, nick, host, auth, powers, options):
+    def output(self, channel, user, options):
         r = None                                          
         if options.author:
             r = Define.quote(' '.join(options.author), author=True, num=options.result)
@@ -217,7 +217,7 @@ class QuoteModule(BaseDynamicExtension):
             r = Define.quote('random', num=options.result)        
         if r:            
             if options.private:
-                self._bot.notice(nick, r.replace('\r', ' '))
+                self._bot.notice(user.nick, r.replace('\r', ' '))
             else:
                 return ModuleResult('%s' % r.replace('\r', ' '))
         
@@ -242,7 +242,7 @@ class WeatherModule(BaseDynamicExtension):
     def reload(self):
         reload(Weather)
         
-    def output(self, nick, host, auth, powers, options):              
+    def output(self, channel, user, options):              
         args = ' '.join(options.args)
         if options.forecast:
             r = Weather.forecast(args, options.days)
@@ -250,9 +250,9 @@ class WeatherModule(BaseDynamicExtension):
             r = Weather.weather(args)
         if r:
             if options.private:
-                self._bot.notice(nick, r)
+                self._bot.notice(user.nick, r)
             else:
-                return ModuleResult('%s, %s' % (r, nick))
+                return ModuleResult('%s, %s' % (r, user.nick))
         
 class LocationModule(BaseDynamicExtension):
     '''
@@ -260,7 +260,7 @@ class LocationModule(BaseDynamicExtension):
     '''
     def build_meta(self, metadata):
         metadata.key = "location"
-        metadata.aliases = ["locate"]
+        metadata.aliases = ["locate", "l"]
         metadata.prefixes = ["!"]
         metadata.desc = "Locate an IP or coordinate"
         
@@ -275,7 +275,7 @@ class LocationModule(BaseDynamicExtension):
     def reload(self):
         reload(Locate)
         
-    def output(self, nick, host, auth, powers, options):              
+    def output(self, channel, user, options):              
         if options.ip:
             r = Locate.iplocate(options.ip)
         elif options.coord:
@@ -283,9 +283,9 @@ class LocationModule(BaseDynamicExtension):
             r = Locate.geo(l[0], l[1])
         if r:
             if options.private:
-                self._bot.notice(nick, r)
+                self._bot.notice(user.nick, r)
             else:
-                return ModuleResult('%s, %s' % (r, nick))
+                return ModuleResult('%s, %s' % (r, user.nick))
         
 class UrlModule(BaseDynamicExtension):
     '''
@@ -294,7 +294,7 @@ class UrlModule(BaseDynamicExtension):
     
     def __init__(self, interface):
         super(UrlModule, self).__init__(interface)        
-        self._last5urls = []
+        self._last5urls = {}
         # Naive url matcher
         #self._regex_url = re.compile(r'\b((?:telnet|ftp|rtsp|https?)://[^/]+[-\w_/?=%&+;#\\@.]*)')
         
@@ -308,12 +308,15 @@ class UrlModule(BaseDynamicExtension):
         metadata.key = "url"
         metadata.aliases = ["url"]
         metadata.prefixes = ["!"]
-        metadata.listeners = ["msg"]
+        metadata.listeners = ["msg", "action", "botpart"]
         metadata.desc = "Perform operation on an url"
         
     def event(self, key, channel, user, args):
-        if key == "msg":            
-            self.append_if_url(args)                       # Check for URL
+        if key == "msg" or key == "action":            
+            self.append_if_url(channel, args)                       # Check for URL
+        elif key == "botpart":
+            if self._last5urls.has_key(channel):
+                self._last5urls.pop(channel)
     
     def build_parser(self):
         parser = SimpleArgumentParser(prog="!url", prefix_chars="+-")
@@ -333,15 +336,15 @@ class UrlModule(BaseDynamicExtension):
     def reload(self):
         reload(Url)
         
-    def output(self, nick, host, auth, powers, options):              
+    def output(self, channel, user, options):              
         args = options.args                            
         try:                                
             m = re.match(r'^%(\d)$', args)                            
             if m:
-                args = self._last5urls[int(m.group(1))-1]                                                                       
+                args = self._last5urls[channel][int(m.group(1))-1]                                                                       
         except Exception:
             r = None
-            self._bot.notice(nick, 'No url exists for %' + m.group(1))            
+            self._bot.notice(user.nick, 'No url exists for %' + m.group(1))            
         else:            
             if args.find('://', 0, 10) == -1:
                 args = 'http://' + args
@@ -363,25 +366,27 @@ class UrlModule(BaseDynamicExtension):
                 r = Url.dns(args)            
         if r:
             if options.private:
-                self._bot.notice(nick, r)
+                self._bot.notice(user.nick, r)
             else:
-                return ModuleResult('%s, %s' % (r, nick))
+                return ModuleResult('%s, %s' % (r, user.nick))
         
-    def append_if_url(self, msg):        
+    def append_if_url(self, channel, msg):        
         '''
             @param msg: 
         '''
         m = self._regex_url.search(msg)
         if m is not None:
-            sz = len(self._last5urls)
+            if not self._last5urls.has_key(channel):
+                self._last5urls[channel] = []
+            sz = len(self._last5urls[channel])
             if sz == 5:
-                self._last5urls.pop()
-            if sz == 0 or (sz and self._last5urls[0] != m.group(0)):
-                self._last5urls.insert(0, m.group(0))
+                self._last5urls[channel].pop()
+            if sz == 0 or (sz and self._last5urls[channel][0] != m.group(0)):
+                self._last5urls[channel].insert(0, m.group(0))
                 if self._bot.has_status('url'):
                     r = Url.title(m.group(0), only_title=True)
                     if r:
-                        self._bot.say(r)
+                        self._bot.say(channel, r)
         
     def get_state(self):
         d = super(self.__class__, self).get_state()
@@ -409,26 +414,29 @@ class UserModule(BaseDynamicExtension):
         metadata.prefixes = ["!"]
         metadata.desc = "Perform operation related to user"
         metadata.interface = EnforcerInterface
-        metadata.listeners = ["msg", "userlist", "join", "kick", "part", "quit", "exit"]
+        metadata.listeners = ["msg", "action", "userlist", "join", "kick", "part", "quit", "exit", "botpart"]
         
     def event(self, key, channel, user, args):
-        if key == "msg":
-            messages = self.tell_get(user.nick)
+        if key == "msg" or key == "action":
+            messages = self.tell_get(channel, user.nick)
             if messages:
                 for sender, msg, timestamp in messages:
-                    self._bot.say('%s, %s said (%s ago) "%s"' % (user.nick, sender, Chronograph.time_ago(timestamp), msg))
+                    self._bot.say(channel, '%s, %s said (%s ago) "%s"' % (user.nick, sender, Chronograph.time_ago(timestamp), msg))
         elif key == "join":            
-            self.seen_join(user.nick, user.ident, user.host)
+            self.seen_join(channel, user.nick, user.ident, user.host)
         elif key == "kick":      
-            self.seen_part(user.nick, user.ident, user.host, "Kicked by %s, Reason: %s" % (args[0], args[1]))
+            self.seen_part(channel, user.nick, user.ident, user.host, "Kicked by %s, Reason: %s" % (args[0], args[1]))
         elif key == "part":            
-            self.seen_part(user.nick, user.ident, user.host, args)
+            self.seen_part(channel, user.nick, user.ident, user.host, "Parted: %s" % args)
         elif key == "quit":            
-            self.seen_part(user.nick, user.ident, user.host, args)
+            self.seen_part(channel, user.nick, user.ident, user.host, args)
         elif key == "userlist":            
-            self.seen_init(args)
+            self.seen_init(channel, args)
         elif key == "exit" or key == "reload":
             self.remind_dispose()
+        elif key == "botpart":
+            self._remind.clear(channel, pop=True)
+            self._tell.clear(channel, pop=True)
     
     def build_parser(self):
         parser = SimpleArgumentParser(prog="!user")
@@ -444,74 +452,79 @@ class UserModule(BaseDynamicExtension):
     def reload(self):
         reload(User)
         
-    def output(self, nick, host, auth, powers, options):
-        if auth == 0 and options.clear:            
+    def output(self, channel, user, options):
+        if user.auth == 0 and options.clear:            
             if options.args[0] == "tell":
-                self._bot.notice(nick, '%d message(s) were dropped' % self._tell.clear())
+                self._bot.notice(user.nick, '%d message(s) were dropped' % self._tell.clear(channel))
             elif options.args[0] == "remind":
-                self._bot.notice(nick, '%d reminder(s) were dropped' % self._remind.clear())
+                self._bot.notice(user.nick, '%d reminder(s) were dropped' % self._remind.clear(channel))
             else:
-                self._bot.notice(nick, 'Please specify either "remind" or "tell"')
+                self._bot.notice(user.nick, 'Please specify either "remind" or "tell"')
         elif options.tell:               
             if len(options.args):
-                self._tell.post(nick, options.tell, ' '.join(options.args))
-                self._bot.notice(nick, 'Ok, I will convey the message to %s' % options.tell)
+                self._tell.post(channel, user.nick, options.tell, ' '.join(options.args))
+                self._bot.notice(user.nick, 'Ok, I will convey the message to %s' % options.tell)
             else:
-                self._bot.notice(nick, 'Atleast specify a message :/')
+                self._bot.notice(user.nick, 'Atleast specify a message :/')
         elif options.remind:   
             try:             
                 arg = ' '.join(options.args)      
-                self._remind.remind(nick, options.remind, arg)
-                self._bot.notice(nick, 'Reminder has been set')
-            except User.Remind.RemindFormatError:
-                self._bot.notice(nick, 'Invalid time format. Example 20s, 2m, 3h...')
-            except User.Remind.RemindValueError, e:
-                self._bot.notice(nick, e.message)
+                self._remind.remind(channel, user.nick, options.remind, arg)
+                self._bot.notice(user.nick, 'Reminder has been set')
+            except User.RemindFormatError:
+                self._bot.notice(user.nick, 'Invalid time format. Example 20s, 2m, 3h...')
+            except User.RemindValueError, e:
+                self._bot.notice(user.nick, e.message)
         elif options.seen:                  
             for usr in options.args:
                 if usr == self._bot.nick:
                     r = "Me? Surely you can't be serious"
                 else:                    
-                    nicks, req, timestamp, quit_reason = self._seen.seen(usr)
+                    nicks, userstring, timestamp, quit_reason = self._seen.seen(channel, usr)
+                    disp_name = userstring#usr
                     if nicks is None:
                         r = "No I haven't seen %s lately" % usr 
-                    else:
+                    else:                        
+                        if usr in nicks:
+                            nicks.remove(usr)
+                                                   
+                        all_nicks = ', '.join(nicks)
                         if quit_reason is None:                            
-                            if self._bot.names.has_key(usr):
-                                if str(self._bot.names[usr]) != req:
-                                    r = '%s is impersonating %s [%s] at the moment' % (self._bot.names[usr], usr, ', '.join(nicks))
+                            if self._bot.members(channel).has_key(usr):
+                                if str(self._bot.members(channel)[usr]) != userstring:
+                                    r = '%s is impersonating %s [%s] at the moment' % (self._bot.members(channel)[usr], disp_name, all_nicks)
                                 else:
-                                    r = '%s [%s] is right here' % (usr, ', '.join(nicks))
+                                    r = '%s [%s] is right here' % (usr, all_nicks)
                             else:
                                 k = None
                                 for n in nicks:
-                                    if self._bot.names.has_key(n):
-                                        k = nick
+                                    if self._bot.members(channel).has_key(n):
+                                        k = n
                                         break
                                 if k:
-                                    r = '%s [%s] is right here under the nick %s' % (usr, ', '.join(nicks), k)
+                                    r = '%s [%s] is right here under the nick %s' % (disp_name, all_nicks, k)
                                 else:
-                                    r = '%s [%s] was last seen joining %s ago, but he\'s not here now' % (usr, ', '.join(nicks), Chronograph.time_ago(datetime.strptime(timestamp, '%Y-%m-%d %H:%M:%S')))
+                                    r = '%s [%s] was last seen joining %s ago, but he\'s not here now' % (disp_name, all_nicks, Chronograph.time_ago(datetime.strptime(timestamp, '%Y-%m-%d %H:%M:%S')))
                         else:                         
-                            r = '%s [%s] was last seen: %s ago (%s)' % (usr, ', '.join(nicks), Chronograph.time_ago(datetime.strptime(timestamp, '%Y-%m-%d %H:%M:%S')), quit_reason)
+                            r = '%s [%s] was last seen: %s ago (%s)' % (disp_name, all_nicks, Chronograph.time_ago(datetime.strptime(timestamp, '%Y-%m-%d %H:%M:%S')), quit_reason)
                     
                 if r:
                     if options.private:
-                        self._bot.notice(nick, r)
+                        self._bot.notice(user.nick, r)
                     else:
-                        return ModuleResult('%s, %s' % (r, nick))
+                        return ModuleResult('%s, %s' % (r, user.nick))
                     
-    def tell_get(self, nick):
-        return self._tell.get(nick)
+    def tell_get(self, channel, nick):
+        return self._tell.get(channel, nick)
     
-    def seen_init(self, names):
-        self._seen.init(names)
+    def seen_init(self, channel, members):
+        self._seen.init(channel, members)
         
-    def seen_join(self, nick, ident, host):
-        self._seen.join(nick, ident, host)
+    def seen_join(self, channel, nick, ident, host):
+        self._seen.join(channel, nick, ident, host)
         
-    def seen_part(self, nick, ident, host, reason):
-        self._seen.part(nick, ident, host, reason)
+    def seen_part(self, channel, nick, ident, host, reason):
+        self._seen.part(channel, nick, ident, host, reason)
         
     def remind_dispose(self):
         self._remind.dispose()
@@ -536,6 +549,7 @@ class VoteModule(BaseDynamicExtension):
     def __init__(self, interface):
         super(VoteModule, self).__init__(interface)
         self._vote = Vote.VoteMaster()
+        self._timer = Timer.Timer()
         
     def build_meta(self, metadata):
         metadata.key = "vote"
@@ -543,84 +557,102 @@ class VoteModule(BaseDynamicExtension):
         metadata.prefixes = ["!"]
         metadata.desc = "Start a vote"
         metadata.interface = EnforcerInterface
-        metadata.listeners = ["msg"]
+        metadata.listeners = ["msg", "exit", "reload"]
     
+    def reload(self):
+        reload(Vote)
+        reload(Timer)
+        
     def event(self, key, channel, user, args):
         if key == "msg":            
-            if self.is_voting:
+            if self.is_voting(channel):
                 if len(args) == 1:
-                    self.register_vote(user.nick, user.host, args)
+                    self.register_vote(channel, user.nick, user.host, args)
                     return True     # Supress this event
+        elif key == "exit" or key == "reload":
+            self._timer.dispose()
             
     def build_parser(self):
         parser = SimpleArgumentParser(prog="!vote")
         group = parser.add_mutually_exclusive_group() 
         parser.add_argument("-i", "--interval", type=int, dest="interval", default=15, help="Timeout interval N seconds (min 5)", metavar="N")
-        group.add_argument("-k", "--kick", action="store_true", dest="kick", default=False, help="Kick the user")
-        group.add_argument("-a", "--arma", action="store_true", dest="arma", default=False, help="Bring forth armageddon upon user (kickban)")
+        parser.add_argument("-t", "--timeout", dest="timeout", default=None, help="Timeout for unbanning user (min: 15s)", metavar="N")
+        parser.add_argument("-c", "--clear", action="store_true", dest="clear", default=False, help="Clear all pending timeout actions")
+        group.add_argument("-k", "--kick", dest="kick", nargs="+", default=None, help="Kick the user")
+        group.add_argument("-a", "--arma", dest="arma", nargs="+", default=None, help="Bring forth armageddon upon user (kickban)")        
         parser.add_argument("args", nargs="+", help="Vote question or reason", metavar="question")
         return parser
         
-    def output(self, nick, host, auth, powers, options):              
-        if options.kick:                
-            if auth < 3:                    
-                msg_u = options.args
-                kick_users = msg_u[0]
-                kick_reason = ' '.join(msg_u[1:])                    
+    def output(self, channel, user, options):
+        if options.clear:
+            if options.args[0] == 'timeout':
+                self._bot.say(channel, 'Dropped %d timeout action(s)' % self._timer.clear())
+        elif options.kick:                
+            if user.auth <= 150:
+                kick_users = ', '.join(options.kick)
+                kick_reason = ' '.join(options.args)
                 # Define callback                    
-                def vote_result(p, n, q):                                        
+                def vote_result(c, p, n, q):                                        
                     if (p+n) > 1:
                         vote = p - n
                         if vote > 0:                        
-                            self._bot.say('The general public (%d) has agreed to kick %s' % (p + n, kick_users))
-                            for u in kick_users.split():
-                                self._bot.kick(u, kick_reason)
+                            self._bot.say(c, 'The general public (%d) has agreed to kick %s' % (p + n, kick_users))
+                            for u in options.kick:
+                                self._bot.kick(c, u, kick_reason)
                         elif vote < 0:                        
-                            self._bot.say('The general public (%d) has disagreed to kick %s' % (p + n, kick_users))
+                            self._bot.say(c, 'The general public (%d) has disagreed to kick %s' % (p + n, kick_users))
                         else:
-                            self._bot.say('The outcome is a draw! %s is/are saved.' % kick_users)
+                            self._bot.say(c, 'The outcome is a draw! %s is/are saved.' % kick_users)
                     else:
-                        self._bot.say('A minimum of 2 votes are required for taking decision.')
+                        self._bot.say(c, 'A minimum of 2 votes are required for taking decision.')
                 # Call
-                self._vote.start(options.interval, 'kick %s %s' % (kick_users, kick_reason), self._bot.say, vote_result)                
+                self._vote.start(channel, options.interval, 'kick %s? (%s)' % (kick_users, kick_reason), self._bot.say, vote_result)                
         elif options.arma:          
             #args = ' '.join(options.args)                                                              
-            if auth < 3:                                
+            if user.auth <= 50:                                
                 # Define calback
-                arma_users = options.args[0]
-                arma_reason = ' '.join(options.args[1:])
-                def vote_result(p, n, q):
-                    if (p+n) > 1:
-                        vote = p - n
-                        if vote > 0:
-                            self._bot.say('The general public (%d) has agreed to bring forth armageddon upon %s' % (p + n, arma_users))
-                            for u in arma_users.split():
-                                if self._bot.names[u]:                            
-                                    self._bot.kickban(u, self._bot.names[u].host, arma_reason)
-                        elif vote < 0:
-                            self._bot.say('The general public (%d) has disagreed to bring forth armageddon upon %s' % (p + n, arma_users))
+                kb_users = ', '.join(options.arma)
+                kb_reason = ' '.join(options.args)
+                #kb_users = options.args[0]
+                #kb_reason = ' '.join(options.args[1:])
+                try:
+                    kb_timeout = self._timer.parse_time(options.timeout) if options.timeout else None
+                    def vote_result(c, p, n, q):                        
+                        if (p+n) > 1:
+                            vote = p - n
+                            if vote > 0:                                
+                                self._bot.say(c, 'The general public (%d) has agreed to kickban %s for %s' % (p + n, kb_users, options.timeout if kb_timeout else 'infinity'))
+                                for u in options.arma:
+                                    if self._bot.members(c).has_key(u) and self._bot.members(c)[u]:
+                                        h = self._bot.members(c)[u].host
+                                        self._bot.kickban(c, u, h, kb_reason)
+                                        if kb_timeout:
+                                            self._timer.register(options.timeout, self._bot.unban, (c, h,))
+                            elif vote < 0:
+                                self._bot.say(c, 'The general public (%d) has disagreed to kickban %s' % (p + n, kb_users))
+                            else:
+                                self._bot.say(c, 'The outcome is a draw! %s is/are saved.' % kb_users)
                         else:
-                            self._bot.say('The outcome is a draw! %s is/are saved.' % arma_users)
-                    else:
-                        self._bot.say('A minimum of 2 votes are required for taking decision.')
-                # Call    
-                self._vote.start(options.interval, 'Bring forth armageddon upon %s? (%s)' % (arma_users, arma_reason), self._bot.say, vote_result)                
+                            self._bot.say(c, 'A minimum of 2 votes are required for taking decision.')
+                    # Call
+                    self._vote.start(channel, options.interval, 'kickban %s? (%s)' % (kb_users, kb_reason), self._bot.say, vote_result)    
+                except Timer.SimpleError, e:
+                    self._bot.notice(user.nick, 'Error: %s' % e.message)
         else:                                       # Regular vote
             args = ' '.join(options.args)
-            def vote_result(p, n, q):
+            def vote_result(c, p, n, q):
                 vote = p - n
                 if vote:
-                    self._bot.say('The general public (%d) %s : %s' % ((p + n), 'agrees' if vote > 0 else 'disagrees', q))
+                    self._bot.say(c, 'The general public (%d) %s : %s' % ((p + n), 'agrees' if vote > 0 else 'disagrees', q))
                 else:
-                    self._bot.say('The outcome is a draw! Bummer.')
-            self._vote.start(options.interval, args, self._bot.say, vote_result)
+                    self._bot.say(c, 'The outcome is a draw! Bummer.')
+            self._vote.start(channel, options.interval, args, self._bot.say, vote_result)
+        
+    def is_voting(self, channel):
+        return self._vote.is_voting(channel)
     
-    @property
-    def is_voting(self):
-        return self._vote.is_voting    
-    
-    def register_vote(self, nick, host, vote):
-        self._vote.register_vote(nick, host, vote)
+    def register_vote(self, channel, nick, host, vote):
+        self._vote.register_vote(channel, nick, host, vote)
         
 class RollModule(BaseDynamicExtension):
     '''
@@ -640,19 +672,19 @@ class RollModule(BaseDynamicExtension):
         return parser
         
     def reload(self):
-        reload(Vote)
+        reload(Roll)
         
-    def output(self, nick, host, auth, powers, options):              
+    def output(self, channel, user, options):              
         if options.min > 0 and options.max > 0 and options.min < options.max:
             r = Roll.roll(options.min, options.max)
         else:
-            self._bot.notice(nick, 'Roll limits are weird, mate')
+            self._bot.notice(user.nick, 'Roll limits are weird, mate')
             r = None
         if r:
             if options.private:
-                self._bot.notice(nick, r)
+                self._bot.notice(user.nick, r)
             else:
-                return ModuleResult('%s rolled a %s' % (nick, r))    
+                return ModuleResult('%s rolled a %s' % (user.nick, r))    
         
 class GameModule(BaseDynamicExtension):
     '''
@@ -671,12 +703,12 @@ class GameModule(BaseDynamicExtension):
 
     def event(self, key, channel, user, args):
         if key == "msg":            
-            if self.is_joining:
+            if self.is_joining(channel):
                 if args == "+":
-                    self.join(user.nick)
+                    self.join(channel, user.nick)
                     return True
-            elif self.is_playing:
-                self.response(user.nick, args)            
+            elif self.is_playing(channel):
+                self.response(channel, user.nick, args)            
                 return True    
          
     def build_parser(self):
@@ -687,31 +719,28 @@ class GameModule(BaseDynamicExtension):
     def reload(self):
         reload(Game)
         
-    def output(self, nick, host, auth, powers, options):              
+    def output(self, channel, user, options):              
         args = ' '.join(options.args)
         if args == 'werewolf':
-            self._werewolf.start()
+            self._werewolf.start(channel)
             #r = 'Game is currently offline'       
-    
-    @property
-    def is_joining(self):
-        return self._werewolf.is_joining
-    
-    @property
-    def is_playing(self):
-        return self._werewolf.is_playing
-    
-    @property
-    def is_running(self):
-        return self._werewolf.is_running
-    
-    def join(self, nick):
-        self._werewolf.join(nick) 
         
-    def response(self, nick, msg):
+    def is_joining(self, channel):
+        return self._werewolf.is_joining(channel)
+        
+    def is_playing(self, channel):
+        return self._werewolf.is_playing(channel)
+    
+    def is_running(self, channel):
+        return self._werewolf.is_running(channel)
+    
+    def join(self, channel, nick):
+        self._werewolf.join(channel, nick) 
+        
+    def response(self, channel, nick, msg):
         m = re.search(r'\+ ?([\S]*)', msg)
         if m:
-            self._werewolf.lynch(nick, m.group(1))
+            self._werewolf.lynch(channel, nick, m.group(1))
        
 class CleverModule(BaseDynamicExtension):
     '''
@@ -725,13 +754,13 @@ class CleverModule(BaseDynamicExtension):
                     
     def build_meta(self, metadata):
         metadata.key = "cleverbot"
-        metadata.listeners = ["msg", "nick"]
+        metadata.listeners = ["msg", "action", "nick"]
         
-    def event(self, key, channel, user, args):
-        if key == "msg":            
+    def event(self, key, channel, user, args):        
+        if key == "msg" or key == "action":            
             m = self._regex_query.match(args)
             if m and self.is_enabled():
-                self.reply(user.nick, user.host, user.auth, user.powers, m.group(1)) 
+                self.reply(channel, user, m.group(1)) 
         elif key == "nick":
             self.build_matcher()
             
@@ -742,32 +771,32 @@ class CleverModule(BaseDynamicExtension):
     def reload(self):
         reload(AI)
         
-    def reply(self, nick, host, auth, powers, query):                    
-        self.parse_verb(query) or self.parse_pseudo(query, nick) or self.parse_cleverbot(query)
+    def reply(self, channel, user, query):                    
+        self.parse_verb(channel, query) or self.parse_pseudo(channel, query, user.nick) or self.parse_cleverbot(channel, query)
     
-    def parse_pseudo(self, query, nick):
+    def parse_pseudo(self, channel, query, nick):
         reply = self._intelli.reply(query, nick)
         if reply:
-            self._bot.say(reply)                                        
+            self._bot.say(channel, reply)                                        
             return True
         else:
             return False
         
-    def parse_cleverbot(self, query):
+    def parse_cleverbot(self, channel, query):
         reply = self._cb.ask(query)
         if reply:                                                                         
             reply = htmlx.unescape(reply)
-            self._bot.say(reply)
+            self._bot.say(channel, reply)
             return True
         else:
             return False
         
-    def parse_verb(self, query):
+    def parse_verb(self, channel, query):
         m = self._regex_verb.search(query)
         if m:
-            return self._verb(m.group(1), m.group(2), m.group(3))
+            return self._verb(channel, m.group(1), m.group(2), m.group(3))
             
-    def _verb(self, verb, nick, text):
+    def _verb(self, channel, verb, nick, text):
         '''
             @param verb: The action text
             @param nick: The nick part
@@ -779,9 +808,9 @@ class CleverModule(BaseDynamicExtension):
             if nick is not None:
                 if text is None:
                     text = ''
-                self._bot.action('%s %s %s' % (verb, nick, text))                
+                self._bot.action(channel, '%s %s %s' % (verb, nick, text))                
         elif verb == 'slap':
-            self._bot.action('bitchslaps %s' % (nick))       
+            self._bot.action(channel, 'bitchslaps %s' % (nick))       
         else:
             return False 
         return True 

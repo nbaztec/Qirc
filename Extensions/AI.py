@@ -127,13 +127,13 @@ class CleverBot(object):
     '''
         CleverBot handles the interaction between the bot by replying using cleverbot.com 
     '''
-    def __init__(self, params=None):
+    def __init__(self, config=None):
         self.params = {
                     'url'       : 'http://www.cleverbot.com/webservicemin',
                     'name'      : 'Bot'
                 }
-        if params:
-            self.params.update(params)
+        if config:
+            self.params.update(config)
             
         self.data = {
                  'stimulus'         : '',

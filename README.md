@@ -1,6 +1,8 @@
 ## Qirc ##
 ====
 
+Version: 5, Ubiquity
+
 Qirc is an IRC bot built in Python. See the attached user-guide for the entire list of operations (also at http://nbaztec.co.in/projects/list/qirc/qirc-user-guide.html)
 
 It is a simple bot with a simple extensible design and can support many complex tasks.

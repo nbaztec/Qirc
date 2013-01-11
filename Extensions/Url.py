@@ -11,11 +11,13 @@ import json
 import re
 from Util.Log import Log
 from Util.BeautifulSoup import BeautifulSoup
+from Util.Config import ConfigManager
 from Util import htmlx
 
-appid = {
-            'google'    : '',
-        }
+config = ConfigManager.read_config('extensions.conf', 'google')
+#config = {
+#            'google'    : 'AIzaSyAMajmwMaD4uPv1EuXn_WzC-9T61GZW5gw',
+#        }
 
 url_regex = re.compile(r'^https?://([^/]+)(.*)$')
 
@@ -171,7 +173,7 @@ def googleshort(url):
         @summary: Shortens the url to its the goo.gl url 
     '''    
     try:
-        req = urllib2.Request('https://www.googleapis.com/urlshortener/v1/url?key=%s' % appid['google'], data='{"longUrl": "%s"}' % url, headers={'Content-Type': 'application/json'})
+        req = urllib2.Request('https://www.googleapis.com/urlshortener/v1/url?key=%s' % config['app-id'], data='{"longUrl": "%s"}' % url, headers={'Content-Type': 'application/json'})
         response = urllib2.urlopen(req)        
         page = response.read()                        
         response.close()
@@ -187,7 +189,7 @@ def googleexpand(url):
         @summary: Gets the full url of a goo.gl url 
     '''
     try:        
-        response = urllib2.urlopen('https://www.googleapis.com/urlshortener/v1/url?key=%s&shortUrl=%s' % (appid['google'], urllib.quote(url)))        
+        response = urllib2.urlopen('https://www.googleapis.com/urlshortener/v1/url?key=%s&shortUrl=%s' % (config['app-id'], urllib.quote(url)))        
         page = response.read()                        
         response.close()
         result = json.loads(page)    

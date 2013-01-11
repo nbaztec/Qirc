@@ -14,24 +14,24 @@ class BaseInterface(object):
             @param notice: An output function to print the whisper messages
             @param action: An output function to print the self actions
         '''
-        self.params = bot.params
-        self.userlist = bot.current_userlist
-        self.request_names = bot.request_userlist
+        self.config = bot.config
+        self.channel_members = bot.channel_members
+        self.get_user_channel = bot.get_user_channel
+        self.request_memberlist = bot.request_memberlist
     
     @property
     def nick(self):
-        return self.params['nick']
+        return self.config('bot', 'nick')
     
     @property
     def channel(self):
-        if len(self.params['chan']):
-            return self.params['chan'][0]
+        if len(self.channels):
+            return self.channels[0]
         else:
             return ''
-        
-    @property
-    def names(self):        
-        return self.userlist()
+            
+    def members(self, channel):        
+        return self.channel_members(channel)
 
 class VerbalInterface(BaseInterface):
     '''
@@ -112,8 +112,9 @@ class PrivilegedInterface(EnforcerInterface):
         self.module_keys = bot.get_module_keys
         self.add_retry_channel = bot.add_retry_channel
         self.remove_retry_channel = bot.remove_retry_channel
-        self.retry_channels = bot.retry_channels 
-        self.reload_extensions = bot.reload_extensions        
+        self.retry_channels = bot.retry_channels
+        self.reload_config = bot.load_config 
+        self.reload_extensions = bot.reload_extensions    
         self.reload_commands = bot.reload_commands
         self.save_state = bot.save_state
         

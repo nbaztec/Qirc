@@ -8,12 +8,14 @@ import urllib
 import urllib2
 import re
 from Util.BeautifulSoup import BeautifulSoup
+from Util.Config import ConfigManager
 from Util import htmlx
 from Util.Log import Log
 
-appid = {
-            'google'    : '',
-        }
+config = ConfigManager.read_config('extensions.conf', 'google')
+#config = {
+#            'google'    : 'AIzaSyAMajmwMaD4uPv1EuXn_WzC-9T61GZW5gw',
+#        }
 
 
 def wiki(word, num=1, single=False):
@@ -48,7 +50,7 @@ def google(query, num=1, single=False):
         @attention: Google's description requires unescaping twice
     '''  
     try:        
-        response = urllib2.urlopen('https://www.googleapis.com/customsearch/v1?key=%s&cx=008715276770992001381:iyfgiiccnki&q=%s&alt=atom&num=%d' % (appid['google'], urllib.quote(query), num))
+        response = urllib2.urlopen('https://www.googleapis.com/customsearch/v1?key=%s&cx=008715276770992001381:iyfgiiccnki&q=%s&alt=atom&num=%d' % (config['app-id'], urllib.quote(query), num))
         page = response.read()                            
         response.close()
         soup = BeautifulSoup(page)            
@@ -71,7 +73,7 @@ def googleimage(query, num=1, single=False):
         @summary: Performs a Google search on thinkdigit forum and returns the result
     '''    
     try:        
-        response = urllib2.urlopen('https://www.googleapis.com/customsearch/v1?key=%s&cx=008715276770992001381:iyfgiiccnki&q=%s&alt=atom&num=%d&searchType=image' % (appid['google'], urllib.quote(query), num))
+        response = urllib2.urlopen('https://www.googleapis.com/customsearch/v1?key=%s&cx=008715276770992001381:iyfgiiccnki&q=%s&alt=atom&num=%d&searchType=image' % (config['app-id'], urllib.quote(query), num))
         page = response.read()                            
         response.close()
         soup = BeautifulSoup(page)            
@@ -122,7 +124,7 @@ def customsearch(query, site, num=1, single=False):
         @summary: Performs a Google search on a site and returns the nth result
     '''  
     try:        
-        response = urllib2.urlopen('https://www.googleapis.com/customsearch/v1?key=%s&cx=008715276770992001381:iyfgiiccnki&q=%s&alt=atom&num=1&siteSearch=%s' % (appid['google'], urllib.quote(query), site))        
+        response = urllib2.urlopen('https://www.googleapis.com/customsearch/v1?key=%s&cx=008715276770992001381:iyfgiiccnki&q=%s&alt=atom&num=1&siteSearch=%s' % (config['app-id'], urllib.quote(query), site))        
         page = response.read()                            
         response.close()
         soup = BeautifulSoup(page)            

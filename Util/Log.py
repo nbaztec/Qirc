@@ -85,14 +85,14 @@ class Log(object):
                 
                 if cls.debug:
                     print '%s%s %s' % (time.strftime('[%d-%m-%Y %H:%M:%S] ') if cls.timestamps else '', mode, str(msg))
-                else:        
-                    if cls._thread is None:
-                        cls._thread = Thread(target=Log.perform_write, name='perform_write')
-                        cls._thread.start()
-                    try:                        
-                        cls._queue.put('%s%s %s\n' % (time.strftime('[%d-%m-%Y %H:%M:%S] ') if cls.timestamps else '', mode, str(msg)))
-                    except Exception, e:
-                        print '>> Log.write %s' % e
+                        
+                if cls._thread is None:
+                    cls._thread = Thread(target=Log.perform_write, name='perform_write')
+                    cls._thread.start()
+                try:                        
+                    cls._queue.put('%s%s %s\n' % (time.strftime('[%d-%m-%Y %H:%M:%S] ') if cls.timestamps else '', mode, str(msg)))
+                except Exception, e:
+                    print '>> Log.write %s' % e
                     
             except Exception, e:
                 print '> Log.write %s' %e

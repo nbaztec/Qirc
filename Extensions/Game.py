@@ -23,23 +23,32 @@ class Werewolf(object):
         '''
         self.callback = callback   
         self.pm = pm     
-        self.is_running = False             # Game is running
-        self.is_joining = False             # Game in joining stage
-        self.is_playing = False             # Game in playing stage
+        self._is_running = []             # Game is running
+        self._is_joining = []             # Game in joining stage
+        self._is_playing = []             # Game in playing stage
         self.time_of_day = 1                # 0: Day, 1: Night 
     
-    def start(self):
+    def is_running(self, channel):
+        return channel in self._is_running
+    
+    def is_joining(self, channel):
+        return channel in self._is_joining
+    
+    def is_playing(self, channel):
+        return channel in self._is_playing
+        
+    def start(self, channel):
         '''
             @summary: Start the game
         '''
-        if self.is_running:                 # Return if the game is already running
+        if self.is_running(channel):                 # Return if the game is already running
             return None
         
         self.users = {}                     # Build fresh list of players
         Thread(target=self.joining_period, name='joining_period').start()
         return "Starting Werewolf in 20s, type '+' to join in."
       
-    def join(self, user):
+    def join(self, channel, user):
         '''
             @param user: The player's name
         '''
@@ -47,7 +56,7 @@ class Werewolf(object):
             self.users[user] = 0            # 0: Human, 1: Wolf
             Thread(target=self.pm, args=(user, 'Welcome %s.' % user,), name='pm').start()
         
-    def joining_period(self):
+    def joining_period(self, channel):
         '''
             @summary: Calls the timeout of joining period
         '''
@@ -57,7 +66,7 @@ class Werewolf(object):
         self.is_joining = False
         self.assign()                       # Assign roles to players
         
-    def assign(self):
+    def assign(self, channel):
         '''
             @summary: Assigns the roles to players; 0 for Human, 1 for Werewolf. Then starts the game
         '''
@@ -82,7 +91,7 @@ class Werewolf(object):
             Thread(target=self.callback, args=('There is a werewolf amidst %s. Good luck!' % ', '.join(self.users.keys()),), name='callback').start()
             Thread(target=self.game, name='game').start()
               
-    def lynch(self, user, vote):     
+    def lynch(self, channel, user, vote):     
         '''
             @param user: The name of the player
             @param vote: The name of the suspected player
@@ -103,7 +112,7 @@ class Werewolf(object):
         else:
             Thread(target=self.callback, args=("%s, justice is not served at night you moron!" % user,), name="callback").start()
                 
-    def lynch_player(self):
+    def lynch_player(self, channel):
         '''
             @summary: Lynches the top suspected player
         '''
@@ -125,7 +134,7 @@ class Werewolf(object):
         else:      
             Thread(target=self.callback, args=("Come forth people, else the beast shall devour you all!",), name='callback').start()
     
-    def choose_victim(self):
+    def choose_victim(self, channel):
         '''
             @summary: Randomly chooses a villager as the victim
             @return: victim, end_game|bool 
@@ -145,7 +154,7 @@ class Werewolf(object):
         self.villagers -= 1                         
         return victim, self.villagers == 0    # Is the number of wolves equal to the number or villagers?
          
-    def game(self):        
+    def game(self, channel):        
         self.is_playing = True                          # Start playing
         time.sleep(5)                                   # Customary delay
         while self.wolves and self.villagers:           # While one of any isn't dead 

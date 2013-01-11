@@ -8,13 +8,15 @@ import urllib
 import urllib2
 import re
 from Util.BeautifulSoup import BeautifulSoup
+from Util.Config import ConfigManager
 from Util import htmlx
 from Util.Log import Log
 
-appid = {
-            'google'    : '',
-            'stands4'   : {'userid': '', 'token': ''}
-        }
+config = ConfigManager.read_config('extensions.conf')
+#{
+#            'google'    : 'AIzaSyAMajmwMaD4uPv1EuXn_WzC-9T61GZW5gw',
+#            'stands4'   : {'userid': '2263', 'token': 'zMYpRyvDST3POUPd'}
+#        }
 
 def googledefine(query, num=1):    
     '''
@@ -24,7 +26,7 @@ def googledefine(query, num=1):
         @attention: Google's description requires unescaping twice
     '''  
     try:        
-        response = urllib2.urlopen('https://www.googleapis.com/customsearch/v1?key=%s&cx=013036536707430787589:_pqjad5hr1a&q=define+%s&alt=atom&num=%d' % (appid['google'], urllib.quote(query), num))
+        response = urllib2.urlopen('https://www.googleapis.com/customsearch/v1?key=%s&cx=013036536707430787589:_pqjad5hr1a&q=define+%s&alt=atom&num=%d' % (config['google']['app-id'], urllib.quote(query), num))
         page = response.read()                            
         response.close()
         soup = BeautifulSoup(page)            
@@ -65,7 +67,7 @@ def dictionary(term, num=1):
         @summary: Performs a abbreviations.com dictionary search and returns the first result
     '''  
     try:              
-        response = urllib2.urlopen('http://www.stands4.com/services/v2/defs.php?uid=%s&tokenid=%s&word=%s' % (appid['stands4']['userid'], appid['stands4']['token'], urllib.quote(term)))        
+        response = urllib2.urlopen('http://www.stands4.com/services/v2/defs.php?uid=%s&tokenid=%s&word=%s' % (config['stands4']['userid'], config['stands4']['token'], urllib.quote(term)))        
         page = response.read()                            
         response.close()
         soup = BeautifulSoup(page)            
@@ -87,7 +89,7 @@ def synonyms(term, num=1):
         @summary: Performs a abbreviations.com synonym search and returns the results
     '''  
     try:              
-        response = urllib2.urlopen('http://www.stands4.com/services/v2/syno.php?uid=%s&tokenid=%s&word=%s' % (appid['stands4']['userid'], appid['stands4']['token'], urllib.quote(term)))        
+        response = urllib2.urlopen('http://www.stands4.com/services/v2/syno.php?uid=%s&tokenid=%s&word=%s' % (config['stands4']['userid'], config['stands4']['token'], urllib.quote(term)))        
         page = response.read()                            
         response.close()
         soup = BeautifulSoup(page)            
@@ -122,7 +124,7 @@ def quote(term, search=False, author=False, num=1):
             srch = "AUTHOR"
         else:
             srch = "RANDOM"                
-        response = urllib2.urlopen('http://www.stands4.com/services/v2/quotes.php?uid=%s&tokenid=%s&searchtype=%s&query=%s' % (appid['stands4']['userid'], appid['stands4']['token'], srch, urllib.quote(term)))        
+        response = urllib2.urlopen('http://www.stands4.com/services/v2/quotes.php?uid=%s&tokenid=%s&searchtype=%s&query=%s' % (config['stands4']['userid'], config['stands4']['token'], srch, urllib.quote(term)))        
         page = response.read()                            
         response.close()
         soup = BeautifulSoup(page)            

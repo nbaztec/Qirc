@@ -40,19 +40,16 @@ class SqliteDb(object):
         self._cursor.close()
         self._connection.close()
         
-    def create(self):        
-        self._cursor.execute("""CREATE TABLE users(
+    def create(self):
+        self._cursor.execute("""CREATE TABLE IF NOT EXISTS users(
                 id integer PRIMARY KEY NOT NULL,
                 nick text NOT NULL, 
                 ident text NOT NULL, 
                 host text NOT NULL,
-                num_joins integer NOT NULL DEFAULT 1,
-                timestamp datetime NOT NULL DEFAULT CURRENT_TIMESTAMP, 
-                quit_reason, 
                 UNIQUE(nick, ident, host)
             )""")
         
-        self._cursor.execute("""CREATE TABLE aliases(
+        self._cursor.execute("""CREATE TABLE IF NOT EXISTS aliases(
                 uid integer NOT NULL,                
                 nick text NOT NULL, 
                 ident text NOT NULL, 
@@ -61,6 +58,16 @@ class SqliteDb(object):
                 timestamp datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY(uid) REFERENCES users(id),
                 UNIQUE(uid, nick, ident, host)
+            )""")
+        
+        self._cursor.execute("""CREATE TABLE IF NOT EXISTS user_channels(
+                uid integer NOT NULL,
+                channel text NOT NULL,
+                num_joins integer NOT NULL DEFAULT 1,
+                timestamp datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                quit_reason,
+                FOREIGN KEY(uid) REFERENCES users(id),
+                UNIQUE(uid, channel)
             )""")
         
     def clear(self):
