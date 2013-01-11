@@ -15,23 +15,21 @@ class BaseInterface(object):
             @param action: An output function to print the self actions
         '''
         self.config = bot.config
+        self.channels = bot.channels
         self.channel_members = bot.channel_members
+        self.channel_topic = bot.channel_topic
         self.get_user_channel = bot.get_user_channel
-        self.request_memberlist = bot.request_memberlist
+        self.request_memberlist = bot.request_memberlist    
     
     @property
     def nick(self):
         return self.config('bot', 'nick')
-    
-    @property
-    def channel(self):
-        if len(self.channels):
-            return self.channels[0]
-        else:
-            return ''
             
     def members(self, channel):        
-        return self.channel_members(channel)
+        return self.channel_members(channel)    
+    
+    def topic(self, channel):
+        return self.channel_topic(channel)
 
 class VerbalInterface(BaseInterface):
     '''

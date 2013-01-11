@@ -196,8 +196,7 @@ class BaseBot(object):
             else:
                 return None
         return v
-    
-    @property
+        
     def channels(self):
         return self._channels.keys()
     
@@ -231,6 +230,11 @@ class BaseBot(object):
                         return k
                     else:
                         idx = idx - 1
+        return None
+        
+    def channel_topic(self, channel):
+        if self._channels.has_key(channel) and self._channels[channel].has_key('topic'):
+            return self._channels[channel]['topic']
         return None
         
     def reset_flags(self, build):
@@ -470,7 +474,7 @@ class ActiveBot(BaseBot):
         if channel:
             self._request_memberlist = [channel]
         else:
-            self._request_memberlist = self.channels
+            self._request_memberlist = self.channels()
         self._cv_userlist.notify()
         self._cv_userlist.release()
     
@@ -1135,7 +1139,7 @@ class ActiveBot(BaseBot):
             m = self._regexes['userhost'].search(uh)
             if m:
                 nick = m.group(1).lstrip(':@+')
-                for k in self.channels:
+                for k in self.channels():
                     if self._channels[k]['members'].has_key(nick):
                         self._channels[k]['members'][nick] = User(nick + '!' + m.group(2))
                 self.on_recv_userhosts(nick, m.group(2))
