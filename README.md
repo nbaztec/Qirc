@@ -14,6 +14,7 @@ Supports:
 * Youtube Searches
 * Thinkdigit Forum
 * Urbandictionary
+* Twitter
 * Weather and Forecasting
 * IP Tracing
 * Geolocation

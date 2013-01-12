@@ -1,5 +1,5 @@
 '''
-Created on Jun 8, 2012
+Created on Jan 12, 2013
 @author: Anurag Panda
 @summary: Posts IRC message at twitter
 '''
