@@ -38,7 +38,7 @@ class HelpModule(BaseDynamicExtension):
                 p = '%s%s' % (p, (', '+p).join(v.aliases))
                 if len(p) > max_len:
                     max_len = len(p)
-                l.append((p, v.desc))
+                l.append((p, v.desc))   
         s = ''
         for m in l:
             s += ('%-' + str(max_len+2) + 's%s\n') % m
@@ -684,7 +684,7 @@ class RollModule(BaseDynamicExtension):
             if options.private:
                 self._bot.notice(user.nick, r)
             else:
-                return ModuleResult('%s rolled a %s' % (user.nick, r))    
+                return ModuleResult('%s rolled a %s' % (user.nick, r))   
         
 class GameModule(BaseDynamicExtension):
     '''
@@ -813,4 +813,5 @@ class CleverModule(BaseDynamicExtension):
             self._bot.action(channel, 'bitchslaps %s' % (nick))       
         else:
             return False 
-        return True 
+        return True
+

@@ -6,6 +6,7 @@ Created on Sep 18, 2012
 from QircBot.Interfaces.BotInterface import EnforcerInterface
 from Module import BaseDynamicExtension, ModuleResult
 from Util.SimpleArgumentParser import SimpleArgumentParser
+from Extensions import Twipper
 
 import re
 import time, datetime
@@ -169,3 +170,26 @@ class TimeModule(BaseDynamicExtension):
                 self._bot.notice(user.nick, r)
             else:
                 return ModuleResult('%s, %s' % (r, user.nick))
+
+class TwipperSendModule(BaseDynamicExtension):
+    '''
+        Module for sending message to twitter via IRC.
+    '''
+    def build_meta(self, metadata):
+        metadata.key = 'twipper'
+        metadata.aliases = ['t']
+        metadata.prefixes = ['!']
+        metadata.desc = 'Sends twitter via the authenticated account'
+
+    def build_parser(self):
+        parser = SimpleArgumentParser(prog='!t')
+        parser.add_argument("tweet", nargs="+", help="Tweet this")
+        return parser
+
+    def reload(self):
+        reload(Twipper)
+
+    def output(self, channel, user, options):
+        tweet = ' '.join(options.tweet)
+        r = Twipper.post('<%s> %s'%(user.nick, tweet))
+        return ModuleResult('%s, %s' % (r, user.nick))
