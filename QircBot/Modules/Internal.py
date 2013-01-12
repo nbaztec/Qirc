@@ -6,7 +6,7 @@ Created on Jul 30, 2012
 from QircBot.Interfaces.BotInterface import EnforcerInterface, PrivilegedInterface
 from Module import BaseDynamicExtension, ModuleResult
 from Util.SimpleArgumentParser import SimpleArgumentParser
-from Extensions import Search, Calc, Define, Weather, Locate, Url, Roll, User, Vote, Game, AI, Timer
+from Extensions import Search, Calc, Define, Weather, Locate, Url, Roll, User, Vote, Game, AI, Timer, Twitter
 from Util import Chronograph
 from Util import htmlx
 
@@ -38,7 +38,7 @@ class HelpModule(BaseDynamicExtension):
                 p = '%s%s' % (p, (', '+p).join(v.aliases))
                 if len(p) > max_len:
                     max_len = len(p)
-                l.append((p, v.desc))   
+                l.append((p, v.desc))
         s = ''
         for m in l:
             s += ('%-' + str(max_len+2) + 's%s\n') % m
@@ -685,6 +685,38 @@ class RollModule(BaseDynamicExtension):
                 self._bot.notice(user.nick, r)
             else:
                 return ModuleResult('%s rolled a %s' % (user.nick, r))   
+            
+class TwitterModule(BaseDynamicExtension):
+    '''
+        Module for sending message to twitter via IRC
+    '''
+    def build_meta(self, metadata):
+        metadata.key = 'twitter'
+        metadata.aliases = ['tweet', 't']
+        metadata.prefixes = ['!']
+        metadata.desc = 'Use twitter via an authenticated account'
+
+    def build_parser(self):
+        parser = SimpleArgumentParser(prog='!tweet')
+        parser.add_argument("status", nargs="+", help="Status to tweet")
+        return parser
+
+    def reload(self):
+        reload(Twitter)
+
+    def output(self, channel, user, options):
+        if len(options.status) == 1 and options.status[0] == '{{topic}}':
+            status = self._bot.topic(channel)
+            if status is None:
+                return ModuleResult('%s, channel has no topic set' % user.nick)
+            else:
+                status = '%s : %s, set by %s on %s' % (channel, status['text'], status['user'], datetime.fromtimestamp(float(status['time'])).strftime('%b %d %Y %H:%M'))
+        else:
+            status = '<%s> %s' % (user.nick, ' '.join(options.status))
+        
+        r = Twitter.tweet(status)
+        return ModuleResult('%s, %s' % (r, user.nick)) 
+        
         
 class GameModule(BaseDynamicExtension):
     '''
@@ -813,5 +845,4 @@ class CleverModule(BaseDynamicExtension):
             self._bot.action(channel, 'bitchslaps %s' % (nick))       
         else:
             return False 
-        return True
-
+        return True 
